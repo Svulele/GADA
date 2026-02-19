@@ -8,14 +8,34 @@
 </head>
 <body>
   <header>
-    <h1>GADA</h1>
-    <nav>
-      <a href="/scan.html">Scan</a>
-    </nav>
+    <div class="wrap topbar">
+      <div class="brand">
+        <strong>GADA</strong>
+        <span>Chain of custody • Asset audit trail</span>
+      </div>
+      <div class="nav">
+        <a class="btn btnPrimary" href="/scan.html">Scan</a>
+      </div>
+    </div>
   </header>
 
   <main>
-    <input id="q" placeholder="Search by name or tag..." />
+    <div class="gridStats">
+      <div class="card stat">
+        <div class="label">Total assets</div>
+        <div class="value" id="statTotal">0</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Seen today</div>
+        <div class="value" id="statToday">0</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Last activity</div>
+        <div class="value" id="statLast">—</div>
+      </div>
+    </div>
+
+    <input class="input" id="q" placeholder="Search by name or tag..." />
     <div id="assets" class="cards"></div>
   </main>
 

@@ -8,43 +8,131 @@
 </head>
 <body>
   <header>
-    <h1>Scan</h1>
-    <nav><a href="/">Dashboard</a></nav>
+    <div class="wrap topbar">
+      <div class="brand">
+        <strong>GADA</strong>
+        <span>Scan & log custody events</span>
+      </div>
+      <div class="nav">
+        <a class="btn" href="/">Dashboard</a>
+      </div>
+    </div>
   </header>
 
   <main>
-    <div class="card">
-      <label>Action</label>
-      <select id="action">
-        <option value="SCANNED_IN">SCANNED_IN</option>
-        <option value="SCANNED_OUT">SCANNED_OUT</option>
-        <option value="TRANSFERRED">TRANSFERRED</option>
-      </select>
+    <div class="scanGrid">
+      <!-- Left: Details -->
+      <div class="card">
+        <div class="row">
+          <strong>Event details</strong>
+          <span class="tag">Required</span>
+        </div>
 
-      <label>Location</label>
-      <input id="location" placeholder="e.g. Reception / Ward A / Records Room" />
+        <div class="muted">Choose an action and identify where/whom the asset is moving through.</div>
 
-      <label>Scanned by</label>
-      <input id="scannedBy" placeholder="Your name" />
+        <label class="muted" for="action">Action</label>
+        <select id="action" class="input">
+          <option value="SCANNED_IN">SCANNED_IN</option>
+          <option value="SCANNED_OUT">SCANNED_OUT</option>
+          <option value="TRANSFERRED">TRANSFERRED</option>
+        </select>
 
-      <label>Notes (optional)</label>
-      <input id="notes" placeholder="Optional" />
-    </div>
+        <label class="muted" for="location">Location</label>
+        <input id="location" class="input" placeholder="e.g. Reception / Records / Finance" />
 
-    <div class="card">
-      <label>Tag (QR value)</label>
-      <input id="tag" placeholder="Scan or type tag..." />
-      <button id="submit">Submit Scan</button>
-      <p id="msg"></p>
-    </div>
+        <label class="muted" for="scannedBy">Scanned by</label>
+        <input id="scannedBy" class="input" placeholder="Your name" />
 
-    <div class="hint">
-      Tip: For testing, type any value into Tag and submit.
+        <label class="muted" for="notes">Notes (optional)</label>
+        <input id="notes" class="input" placeholder="Optional" />
+      </div>
+
+      <!-- Right: Scanner + Tag -->
+      <div class="card">
+        <div class="row">
+          <strong>Camera scanner</strong>
+          <span class="tag">Optional</span>
+        </div>
+
+        <div class="muted" id="scanStatus">Tip: Allow camera permission when prompted.</div>
+
+        <div class="readerWrap">
+          <div id="reader"></div>
+        </div>
+
+        <div class="row" style="gap:10px; margin-top:12px;">
+          <button class="btn btnPrimary" id="startScan" type="button">Start scan</button>
+          <button class="btn" id="stopScan" type="button">Stop</button>
+        </div>
+
+        <div style="margin-top:14px;">
+          <label class="muted" for="tag">Tag (QR value)</label>
+          <input id="tag" class="input" placeholder="Scan or type tag..." />
+
+          <div class="row" style="gap:10px; margin-top:12px;">
+            <button class="btn btnPrimary" id="submit" type="button" style="flex:1;">Submit</button>
+            <button class="btn" id="clear" type="button" style="flex:1;">Clear</button>
+          </div>
+
+          <div class="muted" id="msg" style="margin-top:10px;"></div>
+        </div>
+      </div>
     </div>
   </main>
 
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
   <script>
     const $ = (id) => document.getElementById(id);
+
+    // Prefill tag from URL: /scan.html?tag=ASSET-001
+    const params = new URLSearchParams(window.location.search);
+    const prefillTag = params.get("tag");
+    if (prefillTag) $("tag").value = prefillTag;
+
+    let html5QrCode = null;
+
+    function setTag(value) {
+      $("tag").value = value;
+      $("msg").textContent = `Scanned: ${value}`;
+    }
+
+    $("startScan").onclick = async () => {
+      try {
+        if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+
+        $("scanStatus").textContent = "Starting camera...";
+
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          (decodedText) => {
+            setTag(decodedText);
+            $("scanStatus").textContent = "QR captured ✅ (submit when ready)";
+            html5QrCode.stop().catch(() => {});
+          }
+        );
+      } catch (err) {
+        $("scanStatus").textContent = "Could not start camera. On phones, camera may require HTTPS or localhost.";
+        console.error(err);
+      }
+    };
+
+    $("stopScan").onclick = async () => {
+      try {
+        if (html5QrCode) {
+          await html5QrCode.stop();
+          $("scanStatus").textContent = "Scanner stopped.";
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    $("clear").onclick = () => {
+      $("tag").value = "";
+      $("msg").textContent = "";
+    };
 
     $("submit").onclick = async () => {
       const payload = {
@@ -56,7 +144,7 @@
       };
 
       if (!payload.tag || !payload.location || !payload.scanned_by) {
-        $("msg").textContent = "Please fill tag, location, and scanned by.";
+        $("msg").textContent = "Fill tag, location, and scanned by.";
         return;
       }
 
@@ -68,7 +156,10 @@
 
       const data = await res.json();
       $("msg").textContent = res.ok ? `Logged: ${data.asset.name}` : (data.error || "Error");
-      if (res.ok) $("tag").value = "";
+
+      if (res.ok) {
+        $("tag").value = "";
+      }
     };
   </script>
 </body>
