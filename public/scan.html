@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scan - GADA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Scan</h1>
+    <nav><a href="/">Dashboard</a></nav>
+  </header>
+
+  <main>
+    <div class="card">
+      <label>Action</label>
+      <select id="action">
+        <option value="SCANNED_IN">SCANNED_IN</option>
+        <option value="SCANNED_OUT">SCANNED_OUT</option>
+        <option value="TRANSFERRED">TRANSFERRED</option>
+      </select>
+
+      <label>Location</label>
+      <input id="location" placeholder="e.g. Reception / Ward A / Records Room" />
+
+      <label>Scanned by</label>
+      <input id="scannedBy" placeholder="Your name" />
+
+      <label>Notes (optional)</label>
+      <input id="notes" placeholder="Optional" />
+    </div>
+
+    <div class="card">
+      <label>Tag (QR value)</label>
+      <input id="tag" placeholder="Scan or type tag..." />
+      <button id="submit">Submit Scan</button>
+      <p id="msg"></p>
+    </div>
+
+    <div class="hint">
+      Tip: For testing, type any value into Tag and submit.
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    $("submit").onclick = async () => {
+      const payload = {
+        tag: $("tag").value.trim(),
+        action: $("action").value,
+        location: $("location").value.trim(),
+        scanned_by: $("scannedBy").value.trim(),
+        notes: $("notes").value.trim()
+      };
+
+      if (!payload.tag || !payload.location || !payload.scanned_by) {
+        $("msg").textContent = "Please fill tag, location, and scanned by.";
+        return;
+      }
+
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      $("msg").textContent = res.ok ? `Logged: ${data.asset.name}` : (data.error || "Error");
+      if (res.ok) $("tag").value = "";
+    };
+  </script>
+</body>
+</html>
