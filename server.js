@@ -3,6 +3,43 @@ const path = require("path");
 const db = require("./db");
 
 const app = express();
+const session = require("express-session");
+const fs = require("fs");
+
+function loadConfig() {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "public", "config.json"), "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return { locations: [], users: [] };
+  }
+}
+app.use(session({
+  secret: process.env.SESSION_SECRET || "dev-secret-change-me",
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true }
+}));
+app.post("/api/login", (req, res) => {
+  const { user } = req.body;
+  const cfg = loadConfig();
+
+  const okUser =
+    (cfg.users || []).some(u => (typeof u === "string" ? u === user : u.id === user));
+
+  if (!okUser) return res.status(400).json({ error: "Invalid user" });
+
+  req.session.user = user;
+  res.json({ ok: true, user });
+});
+
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.get("/api/me", (req, res) => {
+  res.json({ user: req.session.user || null });
+});
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -56,11 +93,29 @@ app.get("/api/assets/:tag", (req, res) => {
 
 // Log scan event by tag
 app.post("/api/scan", (req, res) => {
-  const { tag, action, location, scanned_by, notes } = req.body;
+  const { tag, action, location,  notes } = req.body;
+
   if (!tag || !action || !location || !scanned_by) {
     return res.status(400).json({ error: "tag, action, location, scanned_by required" });
   }
 
+
+  const cfg = loadConfig();
+
+  if (cfg.locations.length && !cfg.locations.includes(location)) {
+    return res.status(400).json({ error: "Invalid location" });
+  }
+
+  if (cfg.users.length && !cfg.users.includes(scanned_by)) {
+    return res.status(400).json({ error: "Invalid user" });
+  }
+
+const scanned_by = req.session.user;
+if (!scanned_by) return res.status(401).json({ error: "Not logged in" });
+
+if (!tag || !action || !location) {
+  return res.status(400).json({ error: "tag, action, location required" });
+}
   let asset = getAssetByTag(tag);
 
   // Auto-create unknown asset (useful for MVP)
