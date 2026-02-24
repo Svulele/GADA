@@ -3,3 +3,6 @@ gada.db
 *.db
 .env
 npm-debug.log*
+node_modules/
+*.db
+gada.db
