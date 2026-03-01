@@ -4,17 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GADA</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=3" />
 </head>
 <body>
   <header>
     <div class="wrap topbar">
       <div class="brand">
         <strong>GADA</strong>
-        <span>Chain of custody • Asset audit trail</span>
+        <span>Find an asset • Scan • Done</span>
       </div>
       <div class="nav">
-        <a class="btn btnPrimary" href="/scan.html">Scan</a>
+        <a class="btn btnPrimary" href="/scan.html">New scan</a>
       </div>
     </div>
   </header>
@@ -26,7 +26,7 @@
         <div class="value" id="statTotal">0</div>
       </div>
       <div class="card stat">
-        <div class="label">Seen today</div>
+        <div class="label">Scans today</div>
         <div class="value" id="statToday">0</div>
       </div>
       <div class="card stat">
@@ -34,11 +34,28 @@
         <div class="value" id="statLast">—</div>
       </div>
     </div>
+    <div class="card">
+      <strong>Assets</strong>
+      <div class="muted">Search by name or tag.</div>
+      <input class="input" id="q" placeholder="Search..." style="margin-top:10px;" />
+    </div>
 
-    <input class="input" id="q" placeholder="Search by name or tag..." />
-    <div id="assets" class="cards"></div>
+    <div id="assets" class="cards" style="margin-top:12px;"></div>
   </main>
 
-  <script src="app.js"></script>
+  <!-- Native dialog -->
+  <dialog id="historyDialog" class="gadaDialog">
+    <div class="dialogHeader">
+      <div>
+        <div class="dialogTitle" id="dialogTitle">Asset history</div>
+        <div class="muted" id="dialogSubtitle"></div>
+      </div>
+      <button class="btn" id="dialogClose" type="button">Close</button>
+    </div>
+
+    <div id="timeline" class="timeline"></div>
+  </dialog>
+
+  <script src="app.js?v=3"></script>
 </body>
 </html>

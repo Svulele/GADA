@@ -1,9 +1,21 @@
-const q = document.getElementById("q");
-const assetsDiv = document.getElementById("assets");
-
+console.log("GADA app.js loaded");
 const statTotal = document.getElementById("statTotal");
 const statToday = document.getElementById("statToday");
 const statLast = document.getElementById("statLast");
+
+const q = document.getElementById("q");
+const assetsDiv = document.getElementById("assets");
+
+// Dialog elements
+const dialog = document.getElementById("historyDialog");
+const dialogTitle = document.getElementById("dialogTitle");
+const dialogSubtitle = document.getElementById("dialogSubtitle");
+const dialogClose = document.getElementById("dialogClose");
+const timeline = document.getElementById("timeline");
+
+dialogClose.addEventListener("click", () => dialog.close());
+
+// allow Esc to close automatically (dialog does this by default)
 
 async function loadAssets() {
   const res = await fetch("/api/assets");
@@ -11,141 +23,122 @@ async function loadAssets() {
 }
 
 function parseSqliteDate(s) {
-  // SQLite datetime('now') returns "YYYY-MM-DD HH:MM:SS"
   if (!s) return null;
   return new Date(s.replace(" ", "T") + "Z");
 }
 
-function isSameDay(d1, d2) {
-  return d1.getUTCFullYear() === d2.getUTCFullYear() &&
-         d1.getUTCMonth() === d2.getUTCMonth() &&
-         d1.getUTCDate() === d2.getUTCDate();
+function fmtDate(s) {
+  const d = parseSqliteDate(s);
+  return d ? d.toLocaleString() : "—";
 }
 
-function card(a) {
-  const lastDate = a.last_seen ? parseSqliteDate(a.last_seen) : null;
-  const last = lastDate ? lastDate.toLocaleString() : "Never";
+function badge(action) {
+  const nice = (action || "").replaceAll("_", " ");
+  return `<span class="badge">${nice}</span>`;
+}
 
+function assetCard(a) {
   return `
     <div class="card">
       <div class="row">
         <strong>${a.name}</strong>
         <span class="tag">${a.tag}</span>
       </div>
-      <div class="muted">Last seen: ${last}</div>
-      <div class="muted">Last location: ${a.last_location || "-"}</div>
-      <div class="muted">Last scanned by: ${a.last_scanned_by || "-"}</div>
+
+      <div class="muted">Last seen: ${a.last_seen ? fmtDate(a.last_seen) : "Never"}</div>
+      <div class="muted">Location: ${a.last_location || "-"}</div>
+      <div class="muted">By: ${a.last_scanned_by || "-"}</div>
 
       <div class="assetActions">
-        <button class="smallBtn" onclick="viewHistory('${a.tag}')">History</button>
-        <button class="smallBtn" onclick="goScan('${a.tag}')">Scan</button>
+        <button class="smallBtn js-scan" data-tag="${a.tag}">Scan</button>
+        <button class="smallBtn js-history" data-tag="${a.tag}">History</button>
       </div>
     </div>
   `;
 }
 
-window.goScan = (tag) => {
+function goScan(tag) {
   window.location.href = `/scan.html?tag=${encodeURIComponent(tag)}`;
-};
-
-const modal = document.getElementById("modal");
-const modalBackdrop = document.getElementById("modalBackdrop");
-const closeModalBtn = document.getElementById("closeModal");
-const modalTitle = document.getElementById("modalTitle");
-const modalSubtitle = document.getElementById("modalSubtitle");
-const timeline = document.getElementById("timeline");
-
-function openModal() {
-  modal.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
-}
-function closeModal() {
-  modal.classList.add("hidden");
-  document.body.style.overflow = "";
-}
-modalBackdrop?.addEventListener("click", closeModal);
-closeModalBtn?.addEventListener("click", closeModal);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal();
-});
-
-function fmtDate(s) {
-  const d = parseSqliteDate(s);
-  return d ? d.toLocaleString() : s;
 }
 
-function badgeFor(action) {
-  const nice = (action || "").replaceAll("_", " ");
-  return `<span class="badge">${nice}</span>`;
-}
+async function viewHistory(tag) {
+  dialogTitle.textContent = "Asset history";
+  dialogSubtitle.textContent = `Tag: ${tag}`;
+  timeline.innerHTML = `<div class="muted">Loading history…</div>`;
+  dialog.showModal();
 
-window.viewHistory = async (tag) => {
-  const res = await fetch(`/api/assets/${encodeURIComponent(tag)}`);
-  const data = await res.json();
+  try {
+    const res = await fetch(`/api/assets/${encodeURIComponent(tag)}`);
+    if (!res.ok) {
+      timeline.innerHTML = `<div class="muted">Could not load history (HTTP ${res.status}).</div>`;
+      return;
+    }
 
-  modalTitle.textContent = data.asset.name;
-  modalSubtitle.textContent = `Tag: ${data.asset.tag}`;
+    const data = await res.json();
+    dialogTitle.textContent = data.asset?.name || "Asset history";
+    dialogSubtitle.textContent = `Tag: ${data.asset?.tag || tag}`;
 
-  if (!data.events.length) {
-    timeline.innerHTML = `<div class="muted">No events yet.</div>`;
-    openModal();
-    return;
-  }
+    if (!data.events || data.events.length === 0) {
+      timeline.innerHTML = `<div class="muted">No events yet.</div>`;
+      return;
+    }
 
-  timeline.innerHTML = data.events.map((e, idx) => `
-    <div class="event">
-      <div>
-        <div class="dot"></div>
-      </div>
-      <div class="line">
-        <div class="eventCard">
-          <div class="eventTop">
-            <strong>${e.location}</strong>
-            ${badgeFor(e.action)}
-          </div>
-          <div class="eventMeta">
-            <div>🕒 ${fmtDate(e.created_at)}</div>
-            <div>👤 ${e.scanned_by}</div>
-            ${e.notes ? `<div>📝 ${e.notes}</div>` : ``}
+    timeline.innerHTML = data.events.map(e => `
+      <div class="event">
+        <div><div class="dot"></div></div>
+        <div class="line">
+          <div class="eventCard">
+            <div class="eventTop">
+              <strong>${e.location}</strong>
+              ${badge(e.action)}
+            </div>
+            <div class="eventMeta">
+              <div>🕒 ${fmtDate(e.created_at)}</div>
+              <div>👤 ${e.scanned_by}</div>
+              ${e.notes ? `<div>📝 ${e.notes}</div>` : ``}
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  `).join("");
+    `).join("");
 
-  openModal();
-};
+  } catch (err) {
+    console.error(err);
+    timeline.innerHTML = `<div class="muted">Network error loading history.</div>`;
+  }
+}
 
+// One click handler for the whole list
+assetsDiv.addEventListener("click", (e) => {
+  const historyBtn = e.target.closest(".js-history");
+  const scanBtn = e.target.closest(".js-scan");
+
+  if (historyBtn) viewHistory(historyBtn.dataset.tag);
+  if (scanBtn) goScan(scanBtn.dataset.tag);
+});
 
 async function render() {
   const assets = await loadAssets();
+  if (statTotal) statTotal.textContent = assets.length.toString();
 
-  // Stats
-  statTotal.textContent = assets.length.toString();
+const now = new Date();
+const todayCount = assets.filter(a => {
+  if (!a.last_seen) return false;
+  const d = parseSqliteDate(a.last_seen);
+  if (!d) return false;
+  return d.toDateString() === new Date().toDateString();
+}).length;
 
-  const now = new Date();
-  const todayCount = assets.filter(a => {
-    const d = parseSqliteDate(a.last_seen);
-    return d ? isSameDay(d, new Date(now.toISOString())) : false;
-  }).length;
+if (statToday) statToday.textContent = todayCount.toString();
 
-  statToday.textContent = todayCount.toString();
+const newest = assets.find(a => a.last_seen);
+if (statLast) statLast.textContent = newest?.last_seen ? fmtDate(newest.last_seen) : "—";
 
-  const newest = assets.find(a => a.last_seen);
-  if (newest) {
-    const d = parseSqliteDate(newest.last_seen);
-    statLast.textContent = d ? d.toLocaleTimeString() : "—";
-  } else {
-    statLast.textContent = "—";
-  }
-
-  // Filter
   const term = (q.value || "").toLowerCase();
   const filtered = assets.filter(a =>
     a.name.toLowerCase().includes(term) || a.tag.toLowerCase().includes(term)
   );
-
-  assetsDiv.innerHTML = filtered.map(card).join("");
+  assetsDiv.innerHTML = filtered.map(assetCard).join("");
 }
 
 q.addEventListener("input", render);
