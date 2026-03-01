@@ -1,4 +1,4 @@
-<!doctype html>
+still not working look here "<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -11,7 +11,8 @@
     <div class="wrap topbar">
       <div class="brand">
         <strong>GADA</strong>
-        <span>Scan & log custody events</span>
+        <a class="btn" href="/login.html">Change user</a>
+        <span>Scan → Submit</span>
       </div>
       <div class="nav">
         <a class="btn" href="/">Dashboard</a>
@@ -19,148 +20,231 @@
     </div>
   </header>
 
-  <main>
-    <div class="scanGrid">
-      <!-- Left: Details -->
-      <div class="card">
-        <div class="row">
-          <strong>Event details</strong>
-          <span class="tag">Required</span>
-        </div>
+  <main style="max-width:720px;">
+    <div class="card">
+      <div class="row">
+        <strong>Scan asset</strong>
+        <span class="tag">Fast entry</span>
+      </div>
+      <div class="muted" id="scanStatus">Allow camera access if prompted.</div>
 
-        <div class="muted">Choose an action and identify where/whom the asset is moving through.</div>
+      <div class="readerWrap" style="margin-top:12px;">
+        <div id="reader"></div>
+      </div>
 
-        <label class="muted" for="action">Action</label>
+      <div class="row" style="gap:10px; margin-top:12px;">
+        <button class="btn btnPrimary" id="startScan" type="button">Start scan</button>
+        <button class="btn" id="stopScan" type="button">Stop</button>
+      </div>
+
+      <label class="muted" for="tag" style="margin-top:12px; display:block;">Tag</label>
+      <input id="tag" class="input" placeholder="Scan or type tag..." />
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <strong>Where is it now?</strong>
+      <div class="muted" id="currentUserLine" style="margin-top:8px;"></div>
+
+<label class="muted" for="location" style="margin-top:10px; display:block;">Location</label>
+<select id="location" class="input"></select>
+<div class="muted" id="locHint" style="margin-top:-6px; margin-bottom:12px;"></div>
+
+<label class="muted" for="scannedBy" style="margin-top:10px; display:block;">User</label>
+<select id="scannedBy" class="input"></select>
+<div class="muted" id="userHint" style="margin-top:-6px; margin-bottom:12px;"></div>
+
+      <details style="margin-top:12px;">
+        <summary class="muted" style="cursor:pointer;">Optional details</summary>
+
+        <label class="muted" for="action" style="margin-top:10px; display:block;">Action</label>
         <select id="action" class="input">
+          <option value="TRANSFERRED">TRANSFERRED</option>
           <option value="SCANNED_IN">SCANNED_IN</option>
           <option value="SCANNED_OUT">SCANNED_OUT</option>
-          <option value="TRANSFERRED">TRANSFERRED</option>
         </select>
 
-        <label class="muted" for="location">Location</label>
-        <input id="location" class="input" placeholder="e.g. Reception / Records / Finance" />
-
-        <label class="muted" for="scannedBy">Scanned by</label>
-        <input id="scannedBy" class="input" placeholder="Your name" />
-
-        <label class="muted" for="notes">Notes (optional)</label>
+        <label class="muted" for="notes" style="margin-top:10px; display:block;">Notes</label>
         <input id="notes" class="input" placeholder="Optional" />
+      </details>
+
+      <div class="row" style="gap:10px; margin-top:12px;">
+        <button class="btn btnPrimary" id="submit" type="button" style="flex:1;">Submit</button>
+        <button class="btn" id="clear" type="button" style="flex:1;">Clear</button>
       </div>
 
-      <!-- Right: Scanner + Tag -->
-      <div class="card">
-        <div class="row">
-          <strong>Camera scanner</strong>
-          <span class="tag">Optional</span>
-        </div>
-
-        <div class="muted" id="scanStatus">Tip: Allow camera permission when prompted.</div>
-
-        <div class="readerWrap">
-          <div id="reader"></div>
-        </div>
-
-        <div class="row" style="gap:10px; margin-top:12px;">
-          <button class="btn btnPrimary" id="startScan" type="button">Start scan</button>
-          <button class="btn" id="stopScan" type="button">Stop</button>
-        </div>
-
-        <div style="margin-top:14px;">
-          <label class="muted" for="tag">Tag (QR value)</label>
-          <input id="tag" class="input" placeholder="Scan or type tag..." />
-
-          <div class="row" style="gap:10px; margin-top:12px;">
-            <button class="btn btnPrimary" id="submit" type="button" style="flex:1;">Submit</button>
-            <button class="btn" id="clear" type="button" style="flex:1;">Clear</button>
-          </div>
-
-          <div class="muted" id="msg" style="margin-top:10px;"></div>
-        </div>
-      </div>
+      <div class="muted" id="msg" style="margin-top:10px;"></div>
+   
     </div>
   </main>
 
-  <script src="https://unpkg.com/html5-qrcode"></script>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script>
+const $ = (id) => document.getElementById(id);
 
-  <script>
-    const $ = (id) => document.getElementById(id);
+let CONFIG = { locations: [], users: [] };
+let html5QrCode = null;
 
-    // Prefill tag from URL: /scan.html?tag=ASSET-001
-    const params = new URLSearchParams(window.location.search);
-    const prefillTag = params.get("tag");
-    if (prefillTag) $("tag").value = prefillTag;
+// Load config
+async function loadConfig() {
+  try {
+    const res = await fetch("/config.json");
+    if (!res.ok) throw new Error("Config not found");
+    CONFIG = await res.json();
+  } catch (e) {
+    console.error("Failed to load config", e);
+    $("msg").textContent = "System configuration error.";
+  }
+}
 
-    let html5QrCode = null;
+function populateDropdowns() {
+  // Locations
+  const locSelect = $("location");
+  locSelect.innerHTML = (CONFIG.locations || [])
+    .map(l => `<option value="${l}">${l}</option>`)
+    .join("");
 
-    function setTag(value) {
-      $("tag").value = value;
-      $("msg").textContent = `Scanned: ${value}`;
+  // Users
+  const userSelect = $("scannedBy");
+  const users = CONFIG.users || [];
+
+  if (!users.length) {
+    $("userHint").textContent = "No users configured (update config.json).";
+    userSelect.innerHTML = "";
+    return;
+  }
+
+  userSelect.innerHTML = users.map(u => {
+    if (typeof u === "string") return `<option value="${u}">${u}</option>`;
+    const label = `${u.name} — ${u.role} (${u.department})`;
+    return `<option value="${u.id}">${label}</option>`;
+  }).join("");
+
+  $("userHint").textContent = "Select user…";
+  userSelect.disabled = false;
+}
+
+
+async function requireAuth() {
+  // If you use cookies/sessions, keep credentials:'include'
+  const me = await fetch("/api/me", { credentials: "include" })
+    .then(r => r.json())
+    .catch(() => ({}));
+
+  if (!me || !me.user) {
+    window.location.href = "/login.html";
+    return null;
+  }
+  return me.user; // expect something like { id, name, ... }
+}
+function lockUser(user) {
+  const userSelect = $("scannedBy");
+  const tryValues = [user.id, user.name, user.email].filter(Boolean).map(String);
+
+  const found = tryValues.find(v => [...userSelect.options].some(o => o.value === v));
+
+  if (!found) {
+    $("userHint").textContent =
+      `User from /api/me not found in config.json. Got: ${JSON.stringify(user)}`;
+    userSelect.disabled = false; // let user pick manually
+    $("currentUserLine").textContent = "Current user: (not matched)";
+    return;
+  }
+
+  userSelect.value = found;
+  userSelect.disabled = true;
+  $("userHint").textContent = "User locked (change via Login).";
+  $("currentUserLine").textContent = `Current user: ${user.name || user.id || found}`;
+}
+// Init
+(async () => {
+  await loadConfig();
+  populateDropdowns();
+
+  const user = await requireAuth();
+  if (!user) return; // redirected
+
+  lockUser(user);
+
+  $("action").value = "TRANSFERRED";
+  $("tag").focus();
+})();
+
+function setTag(value) {
+  $("tag").value = value;
+  $("msg").textContent = `Scanned: ${value}`;
+  $("location").focus();
+}
+
+// Camera
+$("startScan").onclick = async () => {
+  try {
+    if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+    $("scanStatus").textContent = "Starting camera...";
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      (decodedText) => {
+        setTag(decodedText);
+        $("scanStatus").textContent = "Captured ✅";
+        html5QrCode.stop().catch(() => {});
+      }
+    );
+  } catch (err) {
+    $("scanStatus").textContent = "Camera couldn't start.";
+    console.error(err);
+  }
+};
+
+$("stopScan").onclick = async () => {
+  try {
+    if (html5QrCode) {
+      await html5QrCode.stop();
+      $("scanStatus").textContent = "Scanner stopped.";
     }
+  } catch (err) {
+    console.error(err);
+  }
+};
 
-    $("startScan").onclick = async () => {
-      try {
-        if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+// Clear
+$("clear").onclick = () => {
+  $("tag").value = "";
+  $("msg").textContent = "";
+  $("tag").focus();
+};
 
-        $("scanStatus").textContent = "Starting camera...";
+// Submit
+$("submit").onclick = async () => {
+  const payload = {
+    tag: $("tag").value.trim(),
+    action: $("action").value,
+    location: $("location").value,
+    scanned_by: $("scannedBy").value,
+    notes: ($("notes")?.value || "").trim()
+  };
 
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
-          (decodedText) => {
-            setTag(decodedText);
-            $("scanStatus").textContent = "QR captured ✅ (submit when ready)";
-            html5QrCode.stop().catch(() => {});
-          }
-        );
-      } catch (err) {
-        $("scanStatus").textContent = "Could not start camera. On phones, camera may require HTTPS or localhost.";
-        console.error(err);
-      }
-    };
+  if (!payload.tag || !payload.location || !payload.scanned_by) {
+    $("msg").textContent = "Tag, Location, and User are required.";
+    return;
+  }
 
-    $("stopScan").onclick = async () => {
-      try {
-        if (html5QrCode) {
-          await html5QrCode.stop();
-          $("scanStatus").textContent = "Scanner stopped.";
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    };
+  const res = await fetch("/api/scan", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
-    $("clear").onclick = () => {
-      $("tag").value = "";
-      $("msg").textContent = "";
-    };
+  const data = await res.json();
 
-    $("submit").onclick = async () => {
-      const payload = {
-        tag: $("tag").value.trim(),
-        action: $("action").value,
-        location: $("location").value.trim(),
-        scanned_by: $("scannedBy").value.trim(),
-        notes: $("notes").value.trim()
-      };
-
-      if (!payload.tag || !payload.location || !payload.scanned_by) {
-        $("msg").textContent = "Fill tag, location, and scanned by.";
-        return;
-      }
-
-      const res = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-      $("msg").textContent = res.ok ? `Logged: ${data.asset.name}` : (data.error || "Error");
-
-      if (res.ok) {
-        $("tag").value = "";
-      }
-    };
-  </script>
+  if (res.ok) {
+    $("msg").textContent = `✅ Logged at ${payload.location}`;
+    $("tag").value = "";
+    $("tag").focus();
+  } else {
+    $("msg").textContent = data.error || "Error";
+  }
+};
+</script>
 </body>
 </html>

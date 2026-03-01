@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login - GADA</title>
+  <link rel="stylesheet" href="style.css?v=1" />
+</head>
+<body>
+  <header>
+    <div class="wrap topbar">
+      <div class="brand">
+        <strong>GADA</strong>
+        <span>Select your user</span>
+      </div>
+      <div class="nav">
+        <a class="btn" href="/">Dashboard</a>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width:720px;">
+    <div class="card">
+      <strong>Who are you?</strong>
+      <div class="muted">This will be used for all scan logs.</div>
+
+      <label class="muted" for="user" style="margin-top:10px; display:block;">User</label>
+      <select id="user" class="input"></select>
+      <div class="muted" id="msg" style="margin-top:10px;"></div>
+
+      <button class="btn btnPrimary" id="continue" style="width:100%; margin-top:12px;" type="button">
+        Continue
+      </button>
+    </div>
+  </main>
+
+  <script>
+
+    await fetch("/api/login", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: chosen })
+    });
+    window.location.href = "/scan.html";
+    
+    const userSel = document.getElementById("user");
+    const msg = document.getElementById("msg");
+
+    async function loadConfig() {
+      const res = await fetch("/config.json");
+      if (!res.ok) throw new Error("Missing config.json");
+      return res.json();
+    }
+
+    (async () => {
+      try {
+        const cfg = await loadConfig();
+        const users = cfg.users || [];
+
+        if (!users.length) {
+          msg.textContent = "No users configured in config.json.";
+          return;
+        }
+
+        userSel.innerHTML = users.map(u => {
+          if (typeof u === "string") return `<option value="${u}">${u}</option>`;
+          return `<option value="${u.id}">${u.name} — ${u.role} (${u.department})</option>`;
+        }).join("");
+
+        // If already “logged in”, preselect it
+        const saved = localStorage.getItem("gada_user");
+        if (saved) userSel.value = saved;
+
+      } catch (e) {
+        console.error(e);
+        msg.textContent = "Could not load config.json.";
+      }
+    })();
+
+    document.getElementById("continue").onclick = () => {
+      const chosen = userSel.value;
+      if (!chosen) { msg.textContent = "Please select a user."; return; }
+      localStorage.setItem("gada_user", chosen);
+      window.location.href = "/scan.html";
+    };
+  </script>
+</body>
+</html>

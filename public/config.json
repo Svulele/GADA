@@ -1,0 +1,21 @@
+{
+    "locations": [
+      "Reception",
+      "Records Room",
+      "Triage",
+      "Ward A",
+      "Ward B",
+      "Pharmacy",
+      "Radiology",
+      "Laboratory",
+      "Finance",
+      "Security Desk"
+    ],
+    "users": [
+      { "id": "sbu", "name": "Sbulele", "role": "IT", "department": "IT" },
+      { "id": "admin", "name": "Admin", "role": "Admin", "department": "Records" },
+      { "id": "sec-1", "name": "Security-1", "role": "Security", "department": "Security" },
+      { "id": "nurse-1", "name": "Nurse-1", "role": "Nurse", "department": "Ward A" },
+      { "id": "doc-1", "name": "Doctor-1", "role": "Doctor", "department": "Ward B" }
+    ]
+  }
