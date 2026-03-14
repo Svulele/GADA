@@ -35,55 +35,83 @@
   </main>
 
   <script>
-
-    await fetch("/api/login", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: chosen })
-    });
-    window.location.href = "/scan.html";
-    
     const userSel = document.getElementById("user");
     const msg = document.getElementById("msg");
-
+    const btn = document.getElementById("continue");
+  
     async function loadConfig() {
-      const res = await fetch("/config.json");
+      const res = await fetch("/config.json", { cache: "no-store" });
       if (!res.ok) throw new Error("Missing config.json");
       return res.json();
     }
-
-    (async () => {
-      try {
-        const cfg = await loadConfig();
-        const users = cfg.users || [];
-
-        if (!users.length) {
-          msg.textContent = "No users configured in config.json.";
-          return;
-        }
-
-        userSel.innerHTML = users.map(u => {
-          if (typeof u === "string") return `<option value="${u}">${u}</option>`;
-          return `<option value="${u.id}">${u.name} — ${u.role} (${u.department})</option>`;
-        }).join("");
-
-        // If already “logged in”, preselect it
-        const saved = localStorage.getItem("gada_user");
-        if (saved) userSel.value = saved;
-
-      } catch (e) {
-        console.error(e);
-        msg.textContent = "Could not load config.json.";
+  
+    async function populateUsers() {
+      const cfg = await loadConfig();
+      const users = cfg.users || [];
+  
+      if (!users.length) {
+        msg.textContent = "No users configured in config.json.";
+        userSel.innerHTML = "";
+        btn.disabled = true;
+        return;
       }
-    })();
-
-    document.getElementById("continue").onclick = () => {
+  
+      userSel.innerHTML = users.map(u => {
+        if (typeof u === "string") return `<option value="${u}">${u}</option>`;
+        return `<option value="${u.id}">${u.name} — ${u.role} (${u.department})</option>`;
+      }).join("");
+  
+      msg.textContent = "";
+      btn.disabled = false;
+    }
+  
+    // Load users on page load
+    populateUsers().catch(e => {
+      console.error(e);
+      msg.textContent = "Could not load config.json.";
+    });
+    async function checkAlreadyLoggedIn() {
+      try {
+        const res = await fetch("/api/me", { credentials: "include" });
+        const me = await res.json();
+    
+        if (me.user) {
+          window.location.href = "/scan.html";
+        }
+      } catch {}
+    }
+    
+    checkAlreadyLoggedIn();
+    // Login on click (SESSION COOKIE)
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();              // ✅ stops refresh
+      console.log("Continue clicked");
+    
       const chosen = userSel.value;
       if (!chosen) { msg.textContent = "Please select a user."; return; }
-      localStorage.setItem("gada_user", chosen);
-      window.location.href = "/scan.html";
-    };
+    
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user: chosen })
+        });
+    
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Login failed");
+        
+        console.log("login response ok?", res.ok, "status", res.status, data);
+        msg.textContent = JSON.stringify(data);
+
+        alert("Login OK - redirecting");
+        window.location.href = "/scan.html";
+        
+      } catch (err) {
+        console.error(err);
+        msg.textContent = err.message || "Login error";
+      }
+    });
   </script>
 </body>
 </html>

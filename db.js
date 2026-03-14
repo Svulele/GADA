@@ -1,6 +1,9 @@
 const Database = require("better-sqlite3");
+const path = require("path");
 
-const db = new Database("gada.db");
+const dbPath = path.join(__dirname, "gada.db");
+const db = new Database(dbPath);
+console.log("✅ Using DB at:", dbPath);
 
 // Create tables if they don't exist
 db.exec(`

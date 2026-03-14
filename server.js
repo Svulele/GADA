@@ -12,7 +12,10 @@ app.use(session({
   secret: process.env.SESSION_SECRET || "dev-secret-change-me",
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true }
+  cookie: {
+    httpOnly: true,
+    sameSite: "lax"
+  }
 }));
 
 
@@ -31,8 +34,14 @@ app.post("/api/login", (req, res) => {
   const { user } = req.body;
   const cfg = loadConfig();
 
-  const okUser = (cfg.users || []).some(u => (typeof u === "string" ? u === scanned_by : u.id === scanned_by));
-if ((cfg.users || []).length && !okUser) return res.status(400).json({ error: "Invalid user" });
+  const okUser = (cfg.users || []).some(u =>
+    typeof u === "string" ? String(u) === String(user) : String(u.id) === String(user)
+  );
+
+  if ((cfg.users || []).length && !okUser) {
+    return res.status(400).json({ error: "Invalid user" });
+  }
+
   req.session.user = user;
   res.json({ ok: true, user });
 });
@@ -94,6 +103,11 @@ app.get("/api/assets/:tag", (req, res) => {
   res.json({ asset, events });
 });
 
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.json({ ok: true });
+  });
+});
 // Log scan event by tag
 app.post("/api/scan", (req, res) => {
   const { tag, action, location, notes } = req.body;

@@ -1,4 +1,4 @@
-still not working look here "<!doctype html>
+<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -12,6 +12,7 @@ still not working look here "<!doctype html>
       <div class="brand">
         <strong>GADA</strong>
         <a class="btn" href="/login.html">Change user</a>
+        <button onclick="logout()">Logout</button>
         <span>Scan → Submit</span>
       </div>
       <div class="nav">
@@ -71,6 +72,7 @@ still not working look here "<!doctype html>
         <button class="btn btnPrimary" id="submit" type="button" style="flex:1;">Submit</button>
         <button class="btn" id="clear" type="button" style="flex:1;">Clear</button>
       </div>
+      <div class="muted" id="lastScan" style="margin-top:6px;"></div>
 
       <div class="muted" id="msg" style="margin-top:10px;"></div>
    
@@ -125,17 +127,21 @@ function populateDropdowns() {
 
 
 async function requireAuth() {
-  // If you use cookies/sessions, keep credentials:'include'
-  const me = await fetch("/api/me", { credentials: "include" })
-    .then(r => r.json())
-    .catch(() => ({}));
+  try {
+    const res = await fetch("/api/me", { credentials: "include" });
+    const me = await res.json();
 
-  if (!me || !me.user) {
+    if (!me.user) {
+      window.location.href = "/login.html";
+      return null;
+    }
+
+    return me.user;
+  } catch {
     window.location.href = "/login.html";
-    return null;
   }
-  return me.user; // expect something like { id, name, ... }
 }
+
 function lockUser(user) {
   const userSelect = $("scannedBy");
   const tryValues = [user.id, user.name, user.email].filter(Boolean).map(String);
@@ -169,10 +175,13 @@ function lockUser(user) {
   $("tag").focus();
 })();
 
-function setTag(value) {
+async function setTag(value) {
   $("tag").value = value;
   $("msg").textContent = `Scanned: ${value}`;
   $("location").focus();
+
+  // optional auto submit
+  // $("submit").click();
 }
 
 // Camera
@@ -184,9 +193,10 @@ $("startScan").onclick = async () => {
       { facingMode: "environment" },
       { fps: 10, qrbox: { width: 240, height: 240 } },
       (decodedText) => {
+        if ($("tag").value === decodedText) return; // prevent duplicates
+      
         setTag(decodedText);
         $("scanStatus").textContent = "Captured ✅";
-        html5QrCode.stop().catch(() => {});
       }
     );
   } catch (err) {
@@ -213,38 +223,113 @@ $("clear").onclick = () => {
   $("tag").focus();
 };
 
+
 // Submit
 $("submit").onclick = async () => {
-  const payload = {
-    tag: $("tag").value.trim(),
-    action: $("action").value,
-    location: $("location").value,
-    scanned_by: $("scannedBy").value,
-    notes: ($("notes")?.value || "").trim()
-  };
+  const btn = $("submit");
+  btn.disabled = true;
 
-  if (!payload.tag || !payload.location || !payload.scanned_by) {
-    $("msg").textContent = "Tag, Location, and User are required.";
+  try {
+
+    const tag = $("tag").value.trim();
+const newLocation = $("location").value;
+
+const check = await fetch(`/api/asset/${tag}`, {
+  credentials: "include"
+});
+
+if (check.ok) {
+  const asset = await check.json();
+
+  if (asset.location && asset.location !== newLocation) {
+    const confirmMove = confirm(
+      `Asset is currently in ${asset.location}.\nMove to ${newLocation}?`
+    );
+
+    if (!confirmMove) {
+      return;
+    }
+  }
+}
+    const payload = {
+      tag: $("tag").value.trim(),
+      action: $("action").value,
+      location: $("location").value,
+      scanned_by: $("scannedBy").value,
+      notes: ($("notes")?.value || "").trim()
+    };
+    const res = await fetch("/api/scan", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      $("msg").textContent = `Logged at ${payload.location}`;
+
+      $("lastScan").textContent =  `Last scan: ${payload.tag} → ${payload.location}`;
+
+      $("tag").value = "";
+      $("tag").focus();
+
+      setTimeout(() => {
+        $("msg").textContent = "";
+      }, 3000);
+    } 
+    else {
+      $("msg").textContent = data.error || "Error";
+    }
+
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+ 
+let scanBuffer = "";
+let lastKeyTime = 0;
+
+
+
+document.addEventListener("keydown", (e) => {
+  const now = Date.now();
+
+  // If typing slowly → reset buffer (human typing)
+  if (now - lastKeyTime > 100) {
+    scanBuffer = "";
+  }
+
+  lastKeyTime = now;
+
+  if (e.key === "Enter") {
+    if (scanBuffer.length > 3) {
+      setTag(scanBuffer);
+      $("submit").click(); // auto submit
+    }
+    scanBuffer = "";
     return;
   }
 
-  const res = await fetch("/api/scan", {
+  if (e.key.length === 1) {
+    scanBuffer += e.key;
+  }
+});
+
+document.addEventListener("click", () => {
+  $("tag").focus();
+});
+$("tag").focus();
+async function logout() {
+  await fetch("/api/logout", {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    credentials: "include"
   });
 
-  const data = await res.json();
-
-  if (res.ok) {
-    $("msg").textContent = `✅ Logged at ${payload.location}`;
-    $("tag").value = "";
-    $("tag").focus();
-  } else {
-    $("msg").textContent = data.error || "Error";
-  }
-};
+  window.location.href = "/login.html";
+}
 </script>
 </body>
 </html>
