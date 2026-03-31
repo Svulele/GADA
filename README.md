@@ -1,6 +1,7 @@
 **GADA**
 
-GADA is a lightweight asset tracking and chain-of-custody system designed to log, trace, and audit the movement of physical assets in real time.
+GADA is a lightweight asset tracking and chain-of-custody system designed to log, trace, and audit the movement of medical files 
+in real time.
 
 It provides visibility into who handled an asset, where it was moved, and when the action occurred.
 
