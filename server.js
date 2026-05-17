@@ -30,20 +30,39 @@ function loadConfig() {
   }
 }
 
+function findConfiguredUser(userValue, cfg = loadConfig()) {
+  return (cfg.users || []).find((u) =>
+    typeof u === "string" ? String(u) === String(userValue) : String(u.id) === String(userValue)
+  ) || null;
+}
+
+function formatSessionUser(userValue, cfg = loadConfig()) {
+  if (!userValue) return null;
+
+  const matched = findConfiguredUser(userValue, cfg);
+  if (!matched) return { id: String(userValue), name: String(userValue) };
+  if (typeof matched === "string") return { id: matched, name: matched };
+  return matched;
+}
+
 app.post("/api/login", (req, res) => {
   const { user } = req.body;
   const cfg = loadConfig();
+  const matchedUser = findConfiguredUser(user, cfg);
 
-  const okUser = (cfg.users || []).some(u =>
-    typeof u === "string" ? String(u) === String(user) : String(u.id) === String(user)
-  );
+  if (!user) {
+    return res.status(400).json({ error: "User is required" });
+  }
 
-  if ((cfg.users || []).length && !okUser) {
+  if ((cfg.users || []).length && !matchedUser) {
     return res.status(400).json({ error: "Invalid user" });
   }
 
-  req.session.user = user;
-  res.json({ ok: true, user });
+  req.session.user = matchedUser
+    ? (typeof matchedUser === "string" ? matchedUser : matchedUser.id)
+    : String(user);
+
+  res.json({ ok: true, user: formatSessionUser(req.session.user, cfg) });
 });
 
 app.post("/api/logout", (req, res) => {
@@ -51,7 +70,8 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.get("/api/me", (req, res) => {
-  res.json({ user: req.session.user || null });
+  const cfg = loadConfig();
+  res.json({ user: formatSessionUser(req.session.user, cfg) });
 });
 
 
@@ -103,9 +123,25 @@ app.get("/api/assets/:tag", (req, res) => {
   res.json({ asset, events });
 });
 
-app.post("/api/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.json({ ok: true });
+app.get("/api/asset/:tag", (req, res) => {
+  const { tag } = req.params;
+  const asset = getAssetByTag(tag);
+  if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+  const lastEvent = db.prepare(`
+    SELECT location, scanned_by, action, created_at
+    FROM events
+    WHERE asset_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(asset.asset_id);
+
+  res.json({
+    ...asset,
+    location: lastEvent?.location || null,
+    scanned_by: lastEvent?.scanned_by || null,
+    last_action: lastEvent?.action || null,
+    last_seen: lastEvent?.created_at || null
   });
 });
 // Log scan event by tag
@@ -125,8 +161,7 @@ app.post("/api/scan", (req, res) => {
     return res.status(400).json({ error: "Invalid location" });
   }
 
-  const okUser = (cfg.users || []).some(u => (typeof u === "string" ? u === scanned_by : u.id === scanned_by));
-  if ((cfg.users || []).length && !okUser) {
+  if ((cfg.users || []).length && !findConfiguredUser(scanned_by, cfg)) {
     return res.status(400).json({ error: "Invalid user" });
   }
 

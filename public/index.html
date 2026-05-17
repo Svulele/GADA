@@ -1,61 +1,95 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GADA</title>
-  <link rel="stylesheet" href="style.css?v=3" />
+  <title>GADA • Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <div class="wrap topbar">
+    <div class="topbar">
       <div class="brand">
         <strong>GADA</strong>
-        <span>Find an asset • Scan • Done</span>
+        <span>Asset tracking</span>
       </div>
-      <div class="nav">
-        <a class="btn btnPrimary" href="/scan.html">New scan</a>
-      </div>
+      <nav class="nav">
+        <a class="navLink active" href="/">Dashboard</a>
+        <a class="navLink" href="/scan.html">Scan</a>
+        <a href="/login.html" class="navButton">Change user</a>
+      </nav>
     </div>
   </header>
 
   <main>
-    <div class="gridStats">
-      <div class="card stat">
-        <div class="label">Total assets</div>
-        <div class="value" id="statTotal">0</div>
+    <section class="heroPanel">
+      <div class="heroContent">
+        <div class="heroMeta">
+          <div class="heroDot"></div>
+          <span>System active</span>
+        </div>
+        <h1>Asset<br>Tracking</h1>
+        <p class="heroDesc">Monitor and track physical assets across your facility in real time.</p>
+        <div class="buttonRow" style="margin-top: 0;">
+          <a class="btn btnPrimary" href="/scan.html">Scan asset</a>
+          <a class="btn" href="#assets">View all assets</a>
+        </div>
       </div>
-      <div class="card stat">
-        <div class="label">Scans today</div>
-        <div class="value" id="statToday">0</div>
+      <div class="statsGrid">
+        <div class="statCard">
+          <div class="statLabel">Total assets</div>
+          <div class="statValue" id="statTotal">—</div>
+        </div>
+        <div class="statCard">
+          <div class="statLabel">Scans today</div>
+          <div class="statValue" id="statToday">—</div>
+        </div>
+        <div class="statCard">
+          <div class="statLabel">Last activity</div>
+          <div class="statValueSm" id="statLast">—</div>
+        </div>
       </div>
-      <div class="card stat">
-        <div class="label">Last activity</div>
-        <div class="value" id="statLast">—</div>
-      </div>
-    </div>
-    <div class="card">
-      <strong>Assets</strong>
-      <div class="muted">Search by name or tag.</div>
-      <input class="input" id="q" placeholder="Search..." style="margin-top:10px;" />
-    </div>
+    </section>
 
-    <div id="assets" class="cards" style="margin-top:12px;"></div>
+    <div class="panel" id="assets">
+      <div class="panelHeader">
+        <span class="panelTitle">All assets</span>
+        <button class="btn btnSmall" id="refreshBtn">Refresh</button>
+      </div>
+      <div class="searchBar">
+        <svg class="searchBarIcon" width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 6.5C10 8.43 8.43 10 6.5 10C4.57 10 3 8.43 3 6.5C3 4.57 4.57 3 6.5 3C8.43 3 10 4.57 10 6.5Z" stroke="currentColor" stroke-width="1.4"/><path d="M13 13L9.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input class="searchInput" id="q" placeholder="Search by name or tag…" autocomplete="off" />
+      </div>
+      <div id="assetsBody">
+        <table class="assetTable">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Last location</th>
+              <th>Last seen</th>
+              <th>Scanned by</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="assetsTbody">
+            <tr class="loadingRow"><td colspan="5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </main>
 
-  <!-- Native dialog -->
-  <dialog id="historyDialog" class="gadaDialog">
+  <dialog id="historyDialog">
     <div class="dialogHeader">
       <div>
-        <div class="dialogTitle" id="dialogTitle">Asset history</div>
-        <div class="muted" id="dialogSubtitle"></div>
+        <h2 id="dialogTitle">Asset history</h2>
+        <div class="dialogTagLine" id="dialogTag"></div>
       </div>
-      <button class="btn" id="dialogClose" type="button">Close</button>
+      <button class="btn btnSmall" id="dialogClose" type="button">Close</button>
     </div>
-
-    <div id="timeline" class="timeline"></div>
+    <div class="dialogBody" id="timeline"></div>
   </dialog>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js"></script>
 </body>
 </html>

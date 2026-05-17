@@ -1,115 +1,123 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Login - GADA</title>
-  <link rel="stylesheet" href="style.css?v=1" />
+  <title>Sign in • GADA</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <div class="wrap topbar">
+    <div class="topbar">
       <div class="brand">
         <strong>GADA</strong>
-        <span>Select your user</span>
+        <span>Staff sign-in</span>
       </div>
-      <div class="nav">
-        <a class="btn" href="/">Dashboard</a>
-      </div>
+      <nav class="nav">
+        <a class="navLink" href="/">Dashboard</a>
+      </nav>
     </div>
   </header>
 
-  <main style="max-width:720px;">
-    <div class="card">
-      <strong>Who are you?</strong>
-      <div class="muted">This will be used for all scan logs.</div>
+  <div class="loginWrap">
+    <div class="loginBox">
+      <div class="loginHeader">
+        <div class="loginLogo">GADA</div>
+        <div class="loginSubtitle">Asset tracking system</div>
+      </div>
+      <div class="loginBody">
 
-      <label class="muted" for="user" style="margin-top:10px; display:block;">User</label>
-      <select id="user" class="input"></select>
-      <div class="muted" id="msg" style="margin-top:10px;"></div>
+        <div id="alreadyLoggedIn" style="display:none;">
+          <div class="alreadyBox">
+            <p>Signed in as <strong id="currentUserName"></strong></p>
+          </div>
+          <div class="buttonRow" style="margin-top:0;">
+            <button class="btn btnPrimary" id="continueBtn" style="flex:1;justify-content:center;">Continue to scan</button>
+            <button class="btn" id="logoutBtn">Change user</button>
+          </div>
+        </div>
 
-      <button class="btn btnPrimary" id="continue" style="width:100%; margin-top:12px;" type="button">
-        Continue
-      </button>
+        <div id="loginForm">
+          <h2>Select staff member</h2>
+          <p>Choose your account to access the asset tracking system.</p>
+          <div class="fieldGroup">
+            <label class="fieldLabel" for="user">Staff member</label>
+            <select id="user" class="input"></select>
+          </div>
+          <button class="btn btnPrimary" id="continue" type="button" style="width:100%;justify-content:center;">Sign in</button>
+          <div id="msg" style="margin-top:12px;font-size:0.85rem;color:var(--accent);"></div>
+        </div>
+
+      </div>
     </div>
-  </main>
+  </div>
 
   <script>
-    const userSel = document.getElementById("user");
-    const msg = document.getElementById("msg");
-    const btn = document.getElementById("continue");
-  
+    const userSel = document.getElementById('user');
+    const msg = document.getElementById('msg');
+    const btn = document.getElementById('continue');
+
     async function loadConfig() {
-      const res = await fetch("/config.json", { cache: "no-store" });
-      if (!res.ok) throw new Error("Missing config.json");
+      const res = await fetch('/config.json', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Missing config.json');
       return res.json();
     }
-  
+
     async function populateUsers() {
       const cfg = await loadConfig();
       const users = cfg.users || [];
-  
       if (!users.length) {
-        msg.textContent = "No users configured in config.json.";
-        userSel.innerHTML = "";
+        msg.textContent = 'No users configured.';
         btn.disabled = true;
         return;
       }
-  
       userSel.innerHTML = users.map(u => {
-        if (typeof u === "string") return `<option value="${u}">${u}</option>`;
-        return `<option value="${u.id}">${u.name} — ${u.role} (${u.department})</option>`;
-      }).join("");
-  
-      msg.textContent = "";
+        if (typeof u === 'string') return `<option value="${u}">${u}</option>`;
+        return `<option value="${u.id}">${u.name}${u.role ? ' — ' + u.role : ''}</option>`;
+      }).join('');
       btn.disabled = false;
     }
-  
-    // Load users on page load
-    populateUsers().catch(e => {
-      console.error(e);
-      msg.textContent = "Could not load config.json.";
-    });
+
     async function checkAlreadyLoggedIn() {
       try {
-        const res = await fetch("/api/me", { credentials: "include" });
+        const res = await fetch('/api/me', { credentials: 'include' });
         const me = await res.json();
-    
         if (me.user) {
-          window.location.href = "/scan.html";
+          document.getElementById('currentUserName').textContent = me.user.name || me.user.id;
+          document.getElementById('alreadyLoggedIn').style.display = 'block';
+          document.getElementById('loginForm').style.display = 'none';
+          return true;
         }
-      } catch {}
+      } catch (e) { console.error(e); }
+      return false;
     }
-    
+
+    populateUsers().catch(() => { msg.textContent = 'Could not load staff list.'; btn.disabled = true; });
     checkAlreadyLoggedIn();
-    // Login on click (SESSION COOKIE)
-    btn.addEventListener("click", async (e) => {
-      e.preventDefault();              // ✅ stops refresh
-      console.log("Continue clicked");
-    
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+      document.getElementById('alreadyLoggedIn').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+      populateUsers();
+    });
+
+    document.getElementById('continueBtn').addEventListener('click', () => { window.location.href = '/scan.html'; });
+
+    btn.addEventListener('click', async () => {
       const chosen = userSel.value;
-      if (!chosen) { msg.textContent = "Please select a user."; return; }
-    
+      if (!chosen) { msg.textContent = 'Please select a staff member.'; return; }
       try {
-        const res = await fetch("/api/login", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
+        const res = await fetch('/api/login', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user: chosen })
         });
-    
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Login failed");
-        
-        console.log("login response ok?", res.ok, "status", res.status, data);
-        msg.textContent = JSON.stringify(data);
-
-        alert("Login OK - redirecting");
-        window.location.href = "/scan.html";
-        
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        window.location.href = '/scan.html';
       } catch (err) {
-        console.error(err);
-        msg.textContent = err.message || "Login error";
+        msg.textContent = err.message || 'Login error.';
       }
     });
   </script>

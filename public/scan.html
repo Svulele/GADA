@@ -1,335 +1,90 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Scan - GADA</title>
+  <title>Scan • GADA</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <div class="wrap topbar">
+    <div class="topbar">
       <div class="brand">
         <strong>GADA</strong>
-        <a class="btn" href="/login.html">Change user</a>
-        <button onclick="logout()">Logout</button>
-        <span>Scan → Submit</span>
+        <span>Scan workflow</span>
       </div>
-      <div class="nav">
-        <a class="btn" href="/">Dashboard</a>
-      </div>
+      <nav class="nav">
+        <a class="navLink" href="/">Dashboard</a>
+        <a class="navLink active" href="/scan.html">Scan</a>
+        <a href="/login.html" class="navButton">Change user</a>
+      </nav>
     </div>
   </header>
 
-  <main style="max-width:720px;">
-    <div class="card">
-      <div class="row">
-        <strong>Scan asset</strong>
-        <span class="tag">Fast entry</span>
+  <main>
+    <div class="pageWrap">
+      <div>
+        <p class="scanTitle">Record movement</p>
+        <p class="scanDesc">Enter or scan the asset tag to log its current location and status.</p>
+
+        <div class="panel" style="margin-bottom: 0;">
+          <div class="panelBody">
+            <div class="fieldGroup">
+              <label class="fieldLabel" for="tag">Asset tag / barcode</label>
+              <input id="tag" class="input inputLarge" placeholder="e.g. ASSET-001" autocomplete="off" autofocus />
+            </div>
+
+            <div class="gridTwo">
+              <div class="fieldGroup">
+                <label class="fieldLabel" for="location">Location</label>
+                <select id="location" class="input"></select>
+              </div>
+              <div class="fieldGroup">
+                <label class="fieldLabel" for="action">Action</label>
+                <select id="action" class="input">
+                  <option value="TRANSFERRED">Transfer</option>
+                  <option value="SCANNED_IN">Check in</option>
+                  <option value="SCANNED_OUT">Check out</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="fieldGroup">
+              <label class="fieldLabel" for="notes">Notes <span style="font-weight:300;text-transform:none;letter-spacing:0">(optional)</span></label>
+              <input id="notes" class="input" placeholder="Additional notes…" />
+            </div>
+
+            <div class="buttonRow">
+              <button class="btn btnPrimary" id="submit" type="button">Record scan</button>
+              <button class="btn" id="clear" type="button">Clear</button>
+            </div>
+
+            <div class="messageBar" id="msg"></div>
+          </div>
+        </div>
       </div>
-      <div class="muted" id="scanStatus">Allow camera access if prompted.</div>
 
-      <div class="readerWrap" style="margin-top:12px;">
-        <div id="reader"></div>
+      <div>
+        <div class="userCard">
+          <div class="userCardHeader">
+            <div class="userCardLabel">Signed in as</div>
+            <div class="userCardName" id="currentUserStatus">Loading…</div>
+            <div class="userCardMeta" id="currentUserMeta"></div>
+          </div>
+          <div class="userCardBody">
+            <div class="onlineIndicator" style="margin-bottom: 14px;">
+              <div class="heroDot"></div>
+              <span>Session active</span>
+            </div>
+            <button class="btn btnSmall" id="logoutBtn" type="button" style="width:100%;justify-content:center;">
+              Change user
+            </button>
+          </div>
+        </div>
       </div>
-
-      <div class="row" style="gap:10px; margin-top:12px;">
-        <button class="btn btnPrimary" id="startScan" type="button">Start scan</button>
-        <button class="btn" id="stopScan" type="button">Stop</button>
-      </div>
-
-      <label class="muted" for="tag" style="margin-top:12px; display:block;">Tag</label>
-      <input id="tag" class="input" placeholder="Scan or type tag..." />
-    </div>
-
-    <div class="card" style="margin-top:12px;">
-      <strong>Where is it now?</strong>
-      <div class="muted" id="currentUserLine" style="margin-top:8px;"></div>
-
-<label class="muted" for="location" style="margin-top:10px; display:block;">Location</label>
-<select id="location" class="input"></select>
-<div class="muted" id="locHint" style="margin-top:-6px; margin-bottom:12px;"></div>
-
-<label class="muted" for="scannedBy" style="margin-top:10px; display:block;">User</label>
-<select id="scannedBy" class="input"></select>
-<div class="muted" id="userHint" style="margin-top:-6px; margin-bottom:12px;"></div>
-
-      <details style="margin-top:12px;">
-        <summary class="muted" style="cursor:pointer;">Optional details</summary>
-
-        <label class="muted" for="action" style="margin-top:10px; display:block;">Action</label>
-        <select id="action" class="input">
-          <option value="TRANSFERRED">TRANSFERRED</option>
-          <option value="SCANNED_IN">SCANNED_IN</option>
-          <option value="SCANNED_OUT">SCANNED_OUT</option>
-        </select>
-
-        <label class="muted" for="notes" style="margin-top:10px; display:block;">Notes</label>
-        <input id="notes" class="input" placeholder="Optional" />
-      </details>
-
-      <div class="row" style="gap:10px; margin-top:12px;">
-        <button class="btn btnPrimary" id="submit" type="button" style="flex:1;">Submit</button>
-        <button class="btn" id="clear" type="button" style="flex:1;">Clear</button>
-      </div>
-      <div class="muted" id="lastScan" style="margin-top:6px;"></div>
-
-      <div class="muted" id="msg" style="margin-top:10px;"></div>
-   
     </div>
   </main>
 
-<script src="https://unpkg.com/html5-qrcode"></script>
-<script>
-const $ = (id) => document.getElementById(id);
-
-let CONFIG = { locations: [], users: [] };
-let html5QrCode = null;
-
-// Load config
-async function loadConfig() {
-  try {
-    const res = await fetch("/config.json");
-    if (!res.ok) throw new Error("Config not found");
-    CONFIG = await res.json();
-  } catch (e) {
-    console.error("Failed to load config", e);
-    $("msg").textContent = "System configuration error.";
-  }
-}
-
-function populateDropdowns() {
-  // Locations
-  const locSelect = $("location");
-  locSelect.innerHTML = (CONFIG.locations || [])
-    .map(l => `<option value="${l}">${l}</option>`)
-    .join("");
-
-  // Users
-  const userSelect = $("scannedBy");
-  const users = CONFIG.users || [];
-
-  if (!users.length) {
-    $("userHint").textContent = "No users configured (update config.json).";
-    userSelect.innerHTML = "";
-    return;
-  }
-
-  userSelect.innerHTML = users.map(u => {
-    if (typeof u === "string") return `<option value="${u}">${u}</option>`;
-    const label = `${u.name} — ${u.role} (${u.department})`;
-    return `<option value="${u.id}">${label}</option>`;
-  }).join("");
-
-  $("userHint").textContent = "Select user…";
-  userSelect.disabled = false;
-}
-
-
-async function requireAuth() {
-  try {
-    const res = await fetch("/api/me", { credentials: "include" });
-    const me = await res.json();
-
-    if (!me.user) {
-      window.location.href = "/login.html";
-      return null;
-    }
-
-    return me.user;
-  } catch {
-    window.location.href = "/login.html";
-  }
-}
-
-function lockUser(user) {
-  const userSelect = $("scannedBy");
-  const tryValues = [user.id, user.name, user.email].filter(Boolean).map(String);
-
-  const found = tryValues.find(v => [...userSelect.options].some(o => o.value === v));
-
-  if (!found) {
-    $("userHint").textContent =
-      `User from /api/me not found in config.json. Got: ${JSON.stringify(user)}`;
-    userSelect.disabled = false; // let user pick manually
-    $("currentUserLine").textContent = "Current user: (not matched)";
-    return;
-  }
-
-  userSelect.value = found;
-  userSelect.disabled = true;
-  $("userHint").textContent = "User locked (change via Login).";
-  $("currentUserLine").textContent = `Current user: ${user.name || user.id || found}`;
-}
-// Init
-(async () => {
-  await loadConfig();
-  populateDropdowns();
-
-  const user = await requireAuth();
-  if (!user) return; // redirected
-
-  lockUser(user);
-
-  $("action").value = "TRANSFERRED";
-  $("tag").focus();
-})();
-
-async function setTag(value) {
-  $("tag").value = value;
-  $("msg").textContent = `Scanned: ${value}`;
-  $("location").focus();
-
-  // optional auto submit
-  // $("submit").click();
-}
-
-// Camera
-$("startScan").onclick = async () => {
-  try {
-    if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-    $("scanStatus").textContent = "Starting camera...";
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      (decodedText) => {
-        if ($("tag").value === decodedText) return; // prevent duplicates
-      
-        setTag(decodedText);
-        $("scanStatus").textContent = "Captured ✅";
-      }
-    );
-  } catch (err) {
-    $("scanStatus").textContent = "Camera couldn't start.";
-    console.error(err);
-  }
-};
-
-$("stopScan").onclick = async () => {
-  try {
-    if (html5QrCode) {
-      await html5QrCode.stop();
-      $("scanStatus").textContent = "Scanner stopped.";
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-// Clear
-$("clear").onclick = () => {
-  $("tag").value = "";
-  $("msg").textContent = "";
-  $("tag").focus();
-};
-
-
-// Submit
-$("submit").onclick = async () => {
-  const btn = $("submit");
-  btn.disabled = true;
-
-  try {
-
-    const tag = $("tag").value.trim();
-const newLocation = $("location").value;
-
-const check = await fetch(`/api/asset/${tag}`, {
-  credentials: "include"
-});
-
-if (check.ok) {
-  const asset = await check.json();
-
-  if (asset.location && asset.location !== newLocation) {
-    const confirmMove = confirm(
-      `Asset is currently in ${asset.location}.\nMove to ${newLocation}?`
-    );
-
-    if (!confirmMove) {
-      return;
-    }
-  }
-}
-    const payload = {
-      tag: $("tag").value.trim(),
-      action: $("action").value,
-      location: $("location").value,
-      scanned_by: $("scannedBy").value,
-      notes: ($("notes")?.value || "").trim()
-    };
-    const res = await fetch("/api/scan", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-
-    if (res.ok) {
-      $("msg").textContent = `Logged at ${payload.location}`;
-
-      $("lastScan").textContent =  `Last scan: ${payload.tag} → ${payload.location}`;
-
-      $("tag").value = "";
-      $("tag").focus();
-
-      setTimeout(() => {
-        $("msg").textContent = "";
-      }, 3000);
-    } 
-    else {
-      $("msg").textContent = data.error || "Error";
-    }
-
-  } finally {
-    btn.disabled = false;
-  }
-};
-
- 
-let scanBuffer = "";
-let lastKeyTime = 0;
-
-
-
-document.addEventListener("keydown", (e) => {
-  const now = Date.now();
-
-  // If typing slowly → reset buffer (human typing)
-  if (now - lastKeyTime > 100) {
-    scanBuffer = "";
-  }
-
-  lastKeyTime = now;
-
-  if (e.key === "Enter") {
-    if (scanBuffer.length > 3) {
-      setTag(scanBuffer);
-      $("submit").click(); // auto submit
-    }
-    scanBuffer = "";
-    return;
-  }
-
-  if (e.key.length === 1) {
-    scanBuffer += e.key;
-  }
-});
-
-document.addEventListener("click", () => {
-  $("tag").focus();
-});
-$("tag").focus();
-async function logout() {
-  await fetch("/api/logout", {
-    method: "POST",
-    credentials: "include"
-  });
-
-  window.location.href = "/login.html";
-}
-</script>
+  <script src="scan.js"></script>
 </body>
 </html>
