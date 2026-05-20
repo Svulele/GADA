@@ -1,68 +1,131 @@
-const express = require("express");
-const path = require("path");
-const db = require("./db");
+"use strict";
 
-const app = express();
-const session = require("express-session");
-const fs = require("fs");
+const express      = require("express");
+const path         = require("path");
+const fs           = require("fs");
+const http         = require("http");
+const session      = require("express-session");
+const rateLimit    = require("express-rate-limit");
+const { Server }   = require("socket.io");
+const db           = require("./db");
 
+const app    = express();
+const server = http.createServer(app);
+const io     = new Server(server, { cors: { origin: false } });
+
+// ── config ────────────────────────────────────────────────
+function loadConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
+  } catch { return { locations: [], users: [] }; }
+}
+
+function saveConfig(cfg) {
+  fs.writeFileSync(
+    path.join(__dirname, "config.json"),
+    JSON.stringify(cfg, null, 2),
+    "utf8"
+  );
+}
+
+function findUser(id, cfg) {
+  return (cfg.users || []).find(u =>
+    typeof u === "string" ? u === String(id) : String(u.id) === String(id)
+  ) || null;
+}
+
+function formatUser(id, cfg) {
+  const u = findUser(id, cfg);
+  if (!u) return null;
+  if (typeof u === "string") return { id: u, name: u, access: "staff" };
+  return { id: u.id, name: u.name, role: u.role, department: u.department, access: u.access || "staff" };
+}
+
+// ── middleware ─────────────────────────────────────────────
+app.set("trust proxy", 1);
 app.use(express.json());
-
 app.use(session({
-  secret: process.env.SESSION_SECRET || "dev-secret-change-me",
+  secret: process.env.SESSION_SECRET || (() => {
+    console.warn("⚠️  SESSION_SECRET not set — using insecure default. Set it in .env for production.");
+    return "gada-dev-secret-change-me-in-production";
+  })(),
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    sameSite: "lax"
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 8 * 60 * 60 * 1000  // 8-hour session timeout
   }
 }));
 
+// rate-limit login attempts: 10 per 15 min per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: "Too many login attempts. Please wait 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
+// block direct config access (config is now at root, not public, but belt+suspenders)
+app.get("/config.json", (req, res) => res.status(404).send("Not found"));
+
+// serve public files (no auth needed for static assets)
 app.use(express.static(path.join(__dirname, "public")));
 
-function loadConfig() {
-  try {
-    const raw = fs.readFileSync(path.join(__dirname, "public", "config.json"), "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return { locations: [], users: [] };
-  }
+// ── auth guards ────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+  next();
 }
 
-function findConfiguredUser(userValue, cfg = loadConfig()) {
-  return (cfg.users || []).find((u) =>
-    typeof u === "string" ? String(u) === String(userValue) : String(u.id) === String(userValue)
-  ) || null;
+function requireAdmin(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+  const cfg  = loadConfig();
+  const user = findUser(req.session.userId, cfg);
+  if (!user || user.access !== "admin") return res.status(403).json({ error: "Admin access required" });
+  next();
 }
 
-function formatSessionUser(userValue, cfg = loadConfig()) {
-  if (!userValue) return null;
-
-  const matched = findConfiguredUser(userValue, cfg);
-  if (!matched) return { id: String(userValue), name: String(userValue) };
-  if (typeof matched === "string") return { id: matched, name: matched };
-  return matched;
+function requireStaff(req, res, next) {
+  if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+  const cfg    = loadConfig();
+  const user   = findUser(req.session.userId, cfg);
+  const access = user?.access || "viewer";
+  if (access === "viewer") return res.status(403).json({ error: "Scan access required" });
+  next();
 }
 
-app.post("/api/login", (req, res) => {
-  const { user } = req.body;
+// ── safe public config (locations + user names only, no PINs) ──
+app.get("/api/config", (req, res) => {
   const cfg = loadConfig();
-  const matchedUser = findConfiguredUser(user, cfg);
+  res.json({
+    locations: cfg.locations || [],
+    users: (cfg.users || []).map(u => {
+      if (typeof u === "string") return { id: u, name: u };
+      const { pin, ...safe } = u;
+      return safe;
+    })
+  });
+});
 
-  if (!user) {
-    return res.status(400).json({ error: "User is required" });
-  }
+// ── auth routes ────────────────────────────────────────────
+app.post("/api/login", loginLimiter, (req, res) => {
+  const { userId, pin } = req.body;
+  if (!userId || !pin) return res.status(400).json({ error: "User and PIN required" });
 
-  if ((cfg.users || []).length && !matchedUser) {
-    return res.status(400).json({ error: "Invalid user" });
-  }
+  const cfg  = loadConfig();
+  const user = findUser(userId, cfg);
+  if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-  req.session.user = matchedUser
-    ? (typeof matchedUser === "string" ? matchedUser : matchedUser.id)
-    : String(user);
+  const storedPin = typeof user === "string" ? null : user.pin;
+  if (!storedPin) return res.status(401).json({ error: "No PIN configured for this account" });
+  if (String(pin) !== String(storedPin)) return res.status(401).json({ error: "Invalid credentials" });
 
-  res.json({ ok: true, user: formatSessionUser(req.session.user, cfg) });
+  req.session.userId = user.id;
+  req.session.loginTime = Date.now();
+  res.json({ ok: true, user: formatUser(user.id, cfg) });
 });
 
 app.post("/api/logout", (req, res) => {
@@ -70,116 +133,188 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.get("/api/me", (req, res) => {
+  if (!req.session.userId) return res.json({ user: null });
   const cfg = loadConfig();
-  res.json({ user: formatSessionUser(req.session.user, cfg) });
+  res.json({ user: formatUser(req.session.userId, cfg) });
 });
 
-
-// Helper: get asset by tag
-function getAssetByTag(tag) {
-  return db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
-}
-
-// Create asset (for admin/testing)
-app.post("/api/assets", (req, res) => {
-  const { tag, name, category } = req.body;
-  if (!tag || !name) return res.status(400).json({ error: "tag and name are required" });
-
-  try {
-    const stmt = db.prepare("INSERT INTO assets (tag, name, category) VALUES (?, ?, ?)");
-    const info = stmt.run(tag, name, category || null);
-    res.json({ asset_id: info.lastInsertRowid, tag, name, category: category || null });
-  } catch (e) {
-    res.status(409).json({ error: "Asset tag already exists", details: e.message });
-  }
-});
-
-// List assets with last seen info
-app.get("/api/assets", (req, res) => {
+// ── asset routes ───────────────────────────────────────────
+app.get("/api/assets", requireAuth, (req, res) => {
   const rows = db.prepare(`
     SELECT a.*,
-      (SELECT e.location FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
+      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
       (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by,
       (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
     FROM assets a
     ORDER BY COALESCE(last_seen, a.created_at) DESC
   `).all();
-
   res.json(rows);
 });
 
-// Get asset + full history by tag
-app.get("/api/assets/:tag", (req, res) => {
-  const { tag } = req.params;
-  const asset = getAssetByTag(tag);
+app.get("/api/assets/:tag", requireAuth, (req, res) => {
+  const asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
-
-  const events = db.prepare(`
-    SELECT * FROM events
-    WHERE asset_id = ?
-    ORDER BY created_at DESC
-  `).all(asset.asset_id);
-
+  const events = db.prepare("SELECT * FROM events WHERE asset_id = ? ORDER BY created_at DESC").all(asset.asset_id);
   res.json({ asset, events });
 });
 
-app.get("/api/asset/:tag", (req, res) => {
-  const { tag } = req.params;
-  const asset = getAssetByTag(tag);
-  if (!asset) return res.status(404).json({ error: "Asset not found" });
-
-  const lastEvent = db.prepare(`
-    SELECT location, scanned_by, action, created_at
-    FROM events
-    WHERE asset_id = ?
-    ORDER BY created_at DESC
-    LIMIT 1
-  `).get(asset.asset_id);
-
-  res.json({
-    ...asset,
-    location: lastEvent?.location || null,
-    scanned_by: lastEvent?.scanned_by || null,
-    last_action: lastEvent?.action || null,
-    last_seen: lastEvent?.created_at || null
-  });
-});
-// Log scan event by tag
-app.post("/api/scan", (req, res) => {
-  const { tag, action, location, notes } = req.body;
-
-  const scanned_by = req.session.user;
-  if (!scanned_by) return res.status(401).json({ error: "Not logged in" });
-
-  if (!tag || !action || !location) {
-    return res.status(400).json({ error: "tag, action, location required" });
+// create asset — admin only
+app.post("/api/assets", requireAdmin, (req, res) => {
+  const { tag, name, category } = req.body;
+  if (!tag || !name) return res.status(400).json({ error: "tag and name required" });
+  try {
+    const info = db.prepare("INSERT INTO assets (tag, name, category) VALUES (?, ?, ?)").run(tag, name, category || null);
+    const asset = { asset_id: info.lastInsertRowid, tag, name, category: category || null };
+    io.emit("asset:created", asset);
+    res.json(asset);
+  } catch (e) {
+    res.status(409).json({ error: "Tag already exists" });
   }
+});
+
+// delete asset — admin only
+app.delete("/api/assets/:tag", requireAdmin, (req, res) => {
+  const asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
+  if (!asset) return res.status(404).json({ error: "Asset not found" });
+  db.prepare("DELETE FROM events WHERE asset_id = ?").run(asset.asset_id);
+  db.prepare("DELETE FROM assets WHERE asset_id = ?").run(asset.asset_id);
+  io.emit("asset:deleted", { tag: req.params.tag });
+  res.json({ ok: true });
+});
+
+// ── scan route ─────────────────────────────────────────────
+app.post("/api/scan", requireStaff, (req, res) => {
+  const { tag, action, location, notes } = req.body;
+  if (!tag || !action || !location) return res.status(400).json({ error: "tag, action, location required" });
 
   const cfg = loadConfig();
-
-  if ((cfg.locations || []).length && !(cfg.locations || []).includes(location)) {
+  if (cfg.locations.length && !cfg.locations.includes(location))
     return res.status(400).json({ error: "Invalid location" });
-  }
 
-  if ((cfg.users || []).length && !findConfiguredUser(scanned_by, cfg)) {
-    return res.status(400).json({ error: "Invalid user" });
-  }
-
-  let asset = getAssetByTag(tag);
-
+  let asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
   if (!asset) {
-    const name = `Unknown Asset (${tag})`;
-    const info = db.prepare("INSERT INTO assets (tag, name) VALUES (?, ?)").run(tag, name);
-    asset = { asset_id: info.lastInsertRowid, tag, name, category: null };
+    const info = db.prepare("INSERT INTO assets (tag, name) VALUES (?, ?)").run(tag, `Unknown Asset (${tag})`);
+    asset = { asset_id: info.lastInsertRowid, tag, name: `Unknown Asset (${tag})`, category: null };
   }
 
-  db.prepare(`
-    INSERT INTO events (asset_id, action, location, scanned_by, notes)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(asset.asset_id, action, location, scanned_by, notes || null);
+  const eventInfo = db.prepare("INSERT INTO events (asset_id, action, location, scanned_by, notes) VALUES (?, ?, ?, ?, ?)")
+    .run(asset.asset_id, action, location, req.session.userId, notes || null);
 
-  res.json({ ok: true, asset });
+  const payload = { tag: asset.tag, name: asset.name, action, location, scanned_by: req.session.userId, at: new Date().toISOString() };
+  io.emit("scan:new", payload);
+
+  res.json({ ok: true, asset, eventId: eventInfo.lastInsertRowid });
 });
 
-const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => console.log(`GADA running on http://localhost:${PORT}`));
+// ── undo scan — staff+ ────────────────────────────
+app.delete("/api/scan/undo/:eventId", requireStaff, (req, res) => {
+  const eventId = parseInt(req.params.eventId, 10);
+  if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
+
+  const event = db.prepare("SELECT * FROM events WHERE event_id = ?").get(eventId);
+  if (!event) return res.status(404).json({ error: "Scan event not found" });
+
+  // only the person who scanned can undo, within 30 seconds
+  const age = Date.now() - new Date(event.created_at.replace(" ","T")+"Z").getTime();
+  if (age > 30000) return res.status(400).json({ error: "Undo window has expired (30s)" });
+  if (event.scanned_by !== req.session.userId) return res.status(403).json({ error: "You can only undo your own scans" });
+
+  db.prepare("DELETE FROM events WHERE event_id = ?").run(eventId);
+
+  // emit live update
+  io.emit("scan:undone", { tag: event.asset_id });
+  res.json({ ok: true });
+});
+
+// ── audit log viewer — admin only ────────────────
+app.get("/api/audit/log", requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT
+      a.tag, a.name, a.category,
+      e.event_id, e.action, e.location, e.scanned_by, e.notes, e.created_at
+    FROM events e
+    JOIN assets a ON a.asset_id = e.asset_id
+    ORDER BY e.created_at DESC
+    LIMIT 1000
+  `).all();
+  res.json(rows);
+});
+
+// ── audit export — admin only ─────────────────────────────
+app.get("/api/audit/export", requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT
+      a.tag, a.name, a.category,
+      e.action, e.location, e.scanned_by, e.notes, e.created_at
+    FROM events e
+    JOIN assets a ON a.asset_id = e.asset_id
+    ORDER BY e.created_at DESC
+  `).all();
+
+  const header = ["Tag","Asset Name","Category","Action","Location","Scanned By","Notes","Timestamp"];
+  const escape = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
+  const csv = [header.join(","), ...rows.map(r =>
+    [r.tag, r.name, r.category||"", r.action, r.location, r.scanned_by, r.notes||"", r.created_at].map(escape).join(",")
+  )].join("\n");
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="gada-audit-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send(csv);
+});
+
+// ── user management — admin only ──────────────────────────
+app.get("/api/users", requireAdmin, (req, res) => {
+  const cfg = loadConfig();
+  // never send PINs to the client
+  const safe = (cfg.users || []).map(u => {
+    if (typeof u === "string") return { id: u, name: u, access: "staff" };
+    const { pin, ...rest } = u;
+    return rest;
+  });
+  res.json(safe);
+});
+
+app.post("/api/users", requireAdmin, (req, res) => {
+  const { id, name, role, department, access, pin } = req.body;
+  if (!id || !name || !pin) return res.status(400).json({ error: "id, name and pin required" });
+  if (pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
+  if (!/^\d+$/.test(pin)) return res.status(400).json({ error: "PIN must be numbers only" });
+
+  const cfg = loadConfig();
+  if (findUser(id, cfg)) return res.status(409).json({ error: "User ID already exists" });
+
+  cfg.users.push({ id, name, role: role||"", department: department||"", access: access||"staff", pin });
+  saveConfig(cfg);
+  res.json({ ok: true });
+});
+
+app.put("/api/users/:id", requireAdmin, (req, res) => {
+  const cfg = loadConfig();
+  const idx = cfg.users.findIndex(u => (typeof u === "string" ? u : u.id) === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+  const existing = cfg.users[idx];
+  const updated  = { ...existing, ...req.body };
+  if (req.body.pin && req.body.pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
+  cfg.users[idx] = updated;
+  saveConfig(cfg);
+  res.json({ ok: true });
+});
+
+app.delete("/api/users/:id", requireAdmin, (req, res) => {
+  if (req.params.id === req.session.userId) return res.status(400).json({ error: "Cannot delete your own account" });
+  const cfg = loadConfig();
+  cfg.users = cfg.users.filter(u => (typeof u === "string" ? u : u.id) !== req.params.id);
+  saveConfig(cfg);
+  res.json({ ok: true });
+});
+
+// ── websocket ──────────────────────────────────────────────
+io.on("connection", socket => {
+  console.log("WS client connected:", socket.id);
+  socket.on("disconnect", () => console.log("WS client disconnected:", socket.id));
+});
+
+// ── start ──────────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`\n🏥 GADA running → http://localhost:${PORT}\n`));

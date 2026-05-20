@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Admin — GADA</title>
+  <link rel="stylesheet" href="style.css"/>
+  <script>
+    (function(){
+      if(localStorage.getItem('gadaDark')==='1') document.body.classList.add('dark');
+    })();
+  </script>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brandIcon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 2L3 4.5v3.2c0 3 2 5.4 5 6.3 3-.9 5-3.3 5-6.3V4.5L8 2z" stroke="white" stroke-width="1.4" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <strong>GADA</strong>
+    </div>
+    <nav class="nav">
+      <a class="navLink" href="/">Dashboard</a>
+      <a class="navLink" href="/scan.html">Scan</a>
+      <a class="navLink active" href="/admin.html">Admin</a>
+    </nav>
+    <div class="navRight" style="display:flex;align-items:center;gap:8px;">
+      <button class="darkToggle" id="darkToggle" title="Toggle dark mode">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M13 10A6 6 0 0 1 6 3a6 6 0 1 0 7 7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <a class="userChip" href="/login.html" id="userChip">
+        <div class="userAvatar" id="userAvatar">—</div>
+        <div>
+          <div class="userName" id="userName">Loading…</div>
+          <div class="userRole" id="userRole"></div>
+        </div>
+        <span class="userCaret">⌄</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="pulseBar">
+    <div class="pulseLeft">
+      <div class="pulseDot"></div>
+      <span class="pulseLabel">Admin panel</span>
+      <span class="pulseCount">Users, assets, and audit export</span>
+    </div>
+    <div class="pulseRight">
+      <a class="btn btnSm" href="/api/audit/export" id="exportBtn">Export audit CSV</a>
+    </div>
+  </div>
+
+  <div class="scanWrap" style="align-items:start;">
+    <section class="formCard">
+      <div class="formCardBody">
+        <h2 style="font-size:16px;margin-bottom:14px;">Users</h2>
+        <div id="userMsg" class="notice"></div>
+        <div class="grid2">
+          <div class="field"><label class="label">User ID</label><input class="input" id="uId" placeholder="staff-1"/></div>
+          <div class="field"><label class="label">Name</label><input class="input" id="uName" placeholder="Staff Member"/></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label class="label">Role</label><input class="input" id="uRole" placeholder="Nurse"/></div>
+          <div class="field"><label class="label">Department</label><input class="input" id="uDept" placeholder="Ward A"/></div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label class="label">Access</label>
+            <select class="input" id="uAccess">
+              <option value="staff">Staff</option>
+              <option value="viewer">Viewer</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="field"><label class="label">PIN</label><input class="input" id="uPin" type="password" placeholder="4+ digits" maxlength="8"/></div>
+        </div>
+        <div class="btnRow">
+          <button class="btn btnPrimary" id="saveUser">Save user</button>
+          <button class="btn" id="resetUser">Clear</button>
+        </div>
+        <div id="usersList" style="margin-top:18px;"></div>
+      </div>
+    </section>
+
+    <section class="formCard">
+      <div class="formCardBody">
+        <h2 style="font-size:16px;margin-bottom:14px;">Assets</h2>
+        <div id="assetMsg" class="notice"></div>
+        <div class="field"><label class="label">Asset tag</label><input class="input" id="aTag" placeholder="ASSET-001"/></div>
+        <div class="field"><label class="label">Name</label><input class="input" id="aName" placeholder="Patient file box"/></div>
+        <div class="field"><label class="label">Category</label><input class="input" id="aCat" placeholder="Medical file"/></div>
+        <div class="btnRow">
+          <button class="btn btnPrimary" id="saveAsset">Add asset</button>
+        </div>
+        <div id="assetsList" style="margin-top:18px;"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="activityStrip" style="margin-top:18px;">
+    <div class="asLabel">Recent audit events</div>
+    <div id="auditList"></div>
+  </section>
+</main>
+
+<script>
+function $(id){ return document.getElementById(id); }
+
+function showMsg(id, text, type='ok') {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'notice ' + (type === 'err' ? 'err' : 'ok');
+}
+
+async function api(url, options) {
+  const res = await fetch(url, { credentials:'include', ...options });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function requireAdmin() {
+  try {
+    const me = await api('/api/me');
+    if (!me.user) { location.href = '/login.html'; return false; }
+    if (me.user.access !== 'admin') {
+      document.querySelector('main').innerHTML = '<div class="emptyState">Admin access required.<br><br><a class="btn" href="/">Back to dashboard</a></div>';
+      return false;
+    }
+    const name = me.user.name || me.user.id || '?';
+    $('userAvatar').textContent = name.split(/[\s\-_]/).map(p=>p[0]).join('').toUpperCase().slice(0,2);
+    $('userName').textContent = name;
+    $('userRole').textContent = me.user.role || 'Admin';
+    return true;
+  } catch {
+    location.href = '/login.html';
+    return false;
+  }
+}
+
+function userRow(u) {
+  return `<div class="actItem">
+    <div class="actDot"></div>
+    <div class="actContent">
+      <span class="actName">${u.name || u.id}</span>
+      <span class="actArrow">·</span>
+      <span class="actLoc">${u.access || 'staff'}</span>
+    </div>
+    <div class="actMeta"><span>${u.role || '—'}</span><button class="btn btnSm" data-del-user="${u.id}">Delete</button></div>
+  </div>`;
+}
+
+function assetRow(a) {
+  return `<div class="actItem">
+    <div class="actDot"></div>
+    <div class="actContent">
+      <span class="actName">${a.name}</span>
+      <span class="actArrow">·</span>
+      <span class="actLoc">${a.tag}</span>
+    </div>
+    <div class="actMeta"><span>${a.category || '—'}</span><button class="btn btnSm" data-del-asset="${a.tag}">Delete</button></div>
+  </div>`;
+}
+
+async function loadUsers() {
+  const users = await api('/api/users');
+  $('usersList').innerHTML = users.length ? users.map(userRow).join('') : '<div class="emptyState">No users yet.</div>';
+  document.querySelectorAll('[data-del-user]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this user?')) return;
+      try { await api(`/api/users/${encodeURIComponent(btn.dataset.delUser)}`, { method:'DELETE' }); await loadUsers(); }
+      catch(e) { showMsg('userMsg', e.message, 'err'); }
+    };
+  });
+}
+
+async function loadAssets() {
+  const assets = await api('/api/assets');
+  $('assetsList').innerHTML = assets.length ? assets.slice(0, 20).map(assetRow).join('') : '<div class="emptyState">No assets yet.</div>';
+  document.querySelectorAll('[data-del-asset]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this asset and its events?')) return;
+      try { await api(`/api/assets/${encodeURIComponent(btn.dataset.delAsset)}`, { method:'DELETE' }); await loadAssets(); await loadAudit(); }
+      catch(e) { showMsg('assetMsg', e.message, 'err'); }
+    };
+  });
+}
+
+async function loadAudit() {
+  const rows = await api('/api/audit/log');
+  $('auditList').innerHTML = rows.length ? rows.slice(0, 12).map(r => `
+    <div class="actItem">
+      <div class="actDot"></div>
+      <div class="actContent"><span class="actName">${r.name}</span><span class="actArrow">→</span><span class="actLoc">${r.location}</span></div>
+      <div class="actMeta"><span>${r.action}</span><span>${r.scanned_by}</span></div>
+    </div>`).join('') : '<div class="emptyState">No audit events yet.</div>';
+}
+
+$('resetUser').onclick = () => ['uId','uName','uRole','uDept','uPin'].forEach(id => $(id).value = '');
+
+$('saveUser').onclick = async () => {
+  const body = {
+    id: $('uId').value.trim(),
+    name: $('uName').value.trim(),
+    role: $('uRole').value.trim(),
+    department: $('uDept').value.trim(),
+    access: $('uAccess').value,
+    pin: $('uPin').value.trim()
+  };
+  try {
+    await api('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    showMsg('userMsg', 'User saved.');
+    $('resetUser').click();
+    await loadUsers();
+  } catch(e) { showMsg('userMsg', e.message, 'err'); }
+};
+
+$('saveAsset').onclick = async () => {
+  const body = { tag:$('aTag').value.trim(), name:$('aName').value.trim(), category:$('aCat').value.trim() };
+  try {
+    await api('/api/assets', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    showMsg('assetMsg', 'Asset added.');
+    ['aTag','aName','aCat'].forEach(id => $(id).value = '');
+    await loadAssets();
+  } catch(e) { showMsg('assetMsg', e.message, 'err'); }
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const ok = await requireAdmin();
+  if (!ok) return;
+  await Promise.all([loadUsers(), loadAssets(), loadAudit()]);
+  const btn = $('darkToggle');
+  btn.onclick = () => {
+    document.body.classList.toggle('dark');
+    localStorage.setItem('gadaDark', document.body.classList.contains('dark') ? '1' : '0');
+  };
+});
+</script>
+</body>
+</html>

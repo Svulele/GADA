@@ -26,3 +26,8 @@ SQLite (better-sqlite3)
 Vanilla HTML, CSS, JavaScript
 
 Nodemon (development)
+
+**Local config**
+
+Copy `config.example.json` to `config.json` and change the PINs before running the app.
+`config.json`, `gada.db`, `.env`, and cookies are intentionally ignored so private local data is not pushed to GitHub.

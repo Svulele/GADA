@@ -2,6 +2,7 @@ node_modules/
 gada.db
 *.db
 .env
+config.json
 npm-debug.log*
 node_modules/
 *.db

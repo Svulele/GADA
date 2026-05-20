@@ -1,90 +1,146 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Scan • GADA</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Scan — GADA</title>
+  <link rel="stylesheet" href="style.css"/>
+<script>
+// dark mode persistence
+(function(){
+  if(localStorage.getItem('gadaDark')==='1') document.body.classList.add('dark');
+})();
+</script>
 </head>
 <body>
-  <header>
-    <div class="topbar">
-      <div class="brand">
-        <strong>GADA</strong>
-        <span>Scan workflow</span>
+<header>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brandIcon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="2" width="2" height="12" rx="0.8" fill="white" opacity="0.95"/>
+          <rect x="5.5" y="2" width="1" height="12" rx="0.4" fill="white" opacity="0.7"/>
+          <rect x="7.5" y="2" width="2" height="12" rx="0.8" fill="white" opacity="0.95"/>
+          <rect x="11" y="2" width="1" height="12" rx="0.4" fill="white" opacity="0.7"/>
+          <rect x="13" y="2" width="1.5" height="12" rx="0.6" fill="white" opacity="0.9"/>
+        </svg>
       </div>
-      <nav class="nav">
-        <a class="navLink" href="/">Dashboard</a>
-        <a class="navLink active" href="/scan.html">Scan</a>
-        <a href="/login.html" class="navButton">Change user</a>
-      </nav>
+      <strong>GADA</strong>
     </div>
-  </header>
+    <nav class="nav">
+      <a class="navLink" href="/">Dashboard</a>
+      <a class="navLink active" href="/scan.html">Scan</a>
+      <a class="navLink" href="/admin.html" id="adminNavLink" style="display:none;">Admin</a>
+    </nav>
+    <div class="navRight" style="display:flex;align-items:center;gap:8px;">
+      <button class="darkToggle" id="darkToggle" title="Toggle dark mode">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="M13 10A6 6 0 0 1 6 3a6 6 0 1 0 7 7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <a class="userChip" href="/login.html" id="userChip">
+        <div class="userAvatar" id="userAvatar">—</div>
+        <div>
+          <div class="userName" id="userName">Loading…</div>
+          <div class="userRole" id="userRole"></div>
+        </div>
+        <span class="userCaret">⌄</span>
+      </a>
+    </div>
+  </div>
+</header>
 
-  <main>
-    <div class="pageWrap">
-      <div>
-        <p class="scanTitle">Record movement</p>
-        <p class="scanDesc">Enter or scan the asset tag to log its current location and status.</p>
+<main>
+  <div class="scanWrap">
+    <div class="scanLeft">
+      <h1 class="scanPageTitle">Record movement</h1>
+      <p class="scanPageSub">Enter or scan an asset tag to log its current location.</p>
 
-        <div class="panel" style="margin-bottom: 0;">
-          <div class="panelBody">
-            <div class="fieldGroup">
-              <label class="fieldLabel" for="tag">Asset tag / barcode</label>
-              <input id="tag" class="input inputLarge" placeholder="e.g. ASSET-001" autocomplete="off" autofocus />
-            </div>
-
-            <div class="gridTwo">
-              <div class="fieldGroup">
-                <label class="fieldLabel" for="location">Location</label>
-                <select id="location" class="input"></select>
-              </div>
-              <div class="fieldGroup">
-                <label class="fieldLabel" for="action">Action</label>
-                <select id="action" class="input">
-                  <option value="TRANSFERRED">Transfer</option>
-                  <option value="SCANNED_IN">Check in</option>
-                  <option value="SCANNED_OUT">Check out</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="fieldGroup">
-              <label class="fieldLabel" for="notes">Notes <span style="font-weight:300;text-transform:none;letter-spacing:0">(optional)</span></label>
-              <input id="notes" class="input" placeholder="Additional notes…" />
-            </div>
-
-            <div class="buttonRow">
-              <button class="btn btnPrimary" id="submit" type="button">Record scan</button>
-              <button class="btn" id="clear" type="button">Clear</button>
-            </div>
-
-            <div class="messageBar" id="msg"></div>
+      <div class="formCard">
+        <div class="formCardBody">
+          <div class="field">
+            <label class="label" for="tag">Asset tag</label>
+            <input id="tag" class="input inputLg" placeholder="e.g. ASSET-001"
+              autocomplete="off" autofocus list="tagSuggestions"/>
+            <datalist id="tagSuggestions"></datalist>
           </div>
+          <div class="grid2">
+            <div class="field">
+              <label class="label" for="location">Location</label>
+              <select id="location" class="input"></select>
+            </div>
+            <div class="field">
+              <label class="label" for="action">Action</label>
+              <select id="action" class="input">
+                <option value="TRANSFERRED">Transfer</option>
+                <option value="SCANNED_IN">Check in</option>
+                <option value="SCANNED_OUT">Check out</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label class="label" for="notes">
+              Notes
+              <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:0.5;">(optional)</span>
+            </label>
+            <input id="notes" class="input" placeholder="Add a note…"/>
+          </div>
+          <div class="btnRow">
+            <button class="btn btnPrimary" id="submit">Record scan</button>
+            <button class="btn" id="clear">Clear</button>
+          </div>
+          <div class="notice" id="msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="sessionCard">
+        <div class="scTop">
+          <div class="scTopLabel">Operator</div>
+          <div class="scName" id="currentUserStatus">Loading…</div>
+          <div class="scMeta" id="currentUserMeta"></div>
+        </div>
+        <div class="scBottom">
+          <div class="sessionStatus">
+            <span class="statusDot"></span>
+            Session active
+          </div>
+          <a class="btn btnSm" href="/admin.html" id="adminLink"
+            style="display:none;width:100%;justify-content:center;margin-bottom:8px;">
+            Admin panel
+          </a>
+          <button class="btn btnSm" id="logoutBtn" style="width:100%;justify-content:center;">
+            Sign out
+          </button>
         </div>
       </div>
 
-      <div>
-        <div class="userCard">
-          <div class="userCardHeader">
-            <div class="userCardLabel">Signed in as</div>
-            <div class="userCardName" id="currentUserStatus">Loading…</div>
-            <div class="userCardMeta" id="currentUserMeta"></div>
-          </div>
-          <div class="userCardBody">
-            <div class="onlineIndicator" style="margin-bottom: 14px;">
-              <div class="heroDot"></div>
-              <span>Session active</span>
-            </div>
-            <button class="btn btnSmall" id="logoutBtn" type="button" style="width:100%;justify-content:center;">
-              Change user
-            </button>
+      <!-- recent scans this session -->
+      <div class="sessionCard" style="margin-top:12px;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+          <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.09em;color:var(--text-3);">
+            This session
+          </span>
+        </div>
+        <div id="recentScans" style="max-height:220px;overflow-y:auto;">
+          <div style="padding:16px;font-size:12px;color:var(--text-3);text-align:center;">
+            No scans yet
           </div>
         </div>
       </div>
     </div>
-  </main>
+  </div>
+</main>
 
-  <script src="scan.js"></script>
+<script>
+// show admin nav link if admin
+fetch('/api/me',{credentials:'include'}).then(r=>r.json()).then(me=>{
+  if(me.user?.access==='admin'){
+    document.getElementById('adminNavLink').style.display='';
+  }
+}).catch(()=>{});
+</script>
+<script src="scan.js"></script>
 </body>
 </html>
