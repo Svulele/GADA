@@ -5,6 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Admin — GADA</title>
   <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    @media print {
+      @page { margin: 10mm; }
+      html, body {
+        background: #fff !important;
+      }
+      body::after {
+        content: none !important;
+      }
+      body * {
+        visibility: hidden !important;
+        background: transparent !important;
+        box-shadow: none !important;
+      }
+      #labelPrintArea,
+      #labelPrintArea * {
+        visibility: visible !important;
+      }
+      #labelPrintArea {
+        position: absolute;
+        inset: 0 auto auto 0;
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8mm;
+      }
+      .labelCard {
+        min-height: 58mm;
+        border: 1px solid #111 !important;
+        border-radius: 0;
+        color: #111 !important;
+        background: #fff !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .labelQr {
+        background: #fff !important;
+      }
+    }
+  </style>
   <script>
     (function(){
       if(localStorage.getItem('gadaDark')==='1') document.body.classList.add('dark');
@@ -57,7 +98,14 @@
     </div>
   </div>
 
-  <div class="scanWrap" style="align-items:start;">
+  <div class="adminTabs" role="tablist" aria-label="Admin sections">
+    <button class="adminTab active" type="button" data-tab="users" role="tab" aria-selected="true">Users</button>
+    <button class="adminTab" type="button" data-tab="assets" role="tab" aria-selected="false">Assets</button>
+    <button class="adminTab" type="button" data-tab="audit" role="tab" aria-selected="false">Audit</button>
+    <button class="adminTab" type="button" data-tab="labels" role="tab" aria-selected="false">Labels</button>
+  </div>
+
+  <section class="adminPanel active" id="tab-users" role="tabpanel">
     <section class="formCard">
       <div class="formCardBody">
         <h2 style="font-size:16px;margin-bottom:14px;">Users</h2>
@@ -88,27 +136,97 @@
         <div id="usersList" style="margin-top:18px;"></div>
       </div>
     </section>
+  </section>
 
+  <section class="adminPanel" id="tab-assets" role="tabpanel">
     <section class="formCard">
       <div class="formCardBody">
-        <h2 style="font-size:16px;margin-bottom:14px;">Assets</h2>
+        <div class="labelToolbar">
+          <h2 style="font-size:16px;">Assets</h2>
+          <div class="btnRow" style="margin-top:0;">
+            <button class="btn" id="openImportCsv" type="button">Import CSV</button>
+            <button class="btn btnPrimary" id="openAssetModal" type="button">Register asset</button>
+          </div>
+        </div>
         <div id="assetMsg" class="notice"></div>
-        <div class="field"><label class="label">Asset tag</label><input class="input" id="aTag" placeholder="ASSET-001"/></div>
-        <div class="field"><label class="label">Name</label><input class="input" id="aName" placeholder="Patient file box"/></div>
-        <div class="field"><label class="label">Category</label><input class="input" id="aCat" placeholder="Medical file"/></div>
-        <div class="btnRow">
-          <button class="btn btnPrimary" id="saveAsset">Add asset</button>
+        <div class="importBox" id="importBox" style="display:none;">
+          <input id="csvFile" type="file" accept=".csv,text/csv" style="display:none;"/>
+          <div class="importTop">
+            <button class="btn btnSm" id="chooseCsv" type="button">Choose CSV</button>
+            <span class="importHint" id="csvFileName">No file selected</span>
+            <button class="btn btnSm btnPrimary" id="confirmImport" type="button" disabled>Confirm import</button>
+          </div>
+          <div id="importPreview" class="importPreview">
+            <div class="emptyState" style="padding:20px;">Select a CSV with header: tag,name,category,status</div>
+          </div>
         </div>
         <div id="assetsList" style="margin-top:18px;"></div>
       </div>
     </section>
-  </div>
+  </section>
 
-  <section class="activityStrip" style="margin-top:18px;">
-    <div class="asLabel">Recent audit events</div>
-    <div id="auditList"></div>
+  <section class="adminPanel" id="tab-audit" role="tabpanel">
+    <section class="activityStrip">
+      <div class="asLabel">Recent audit events</div>
+      <div id="auditList"></div>
+    </section>
+  </section>
+
+  <section class="adminPanel" id="tab-labels" role="tabpanel">
+    <section class="formCard">
+      <div class="formCardBody">
+        <div class="labelToolbar">
+          <h2 style="font-size:16px;">Labels</h2>
+          <div class="btnRow" style="margin-top:0;">
+            <button class="btn btnPrimary" id="generateLabels" type="button">Generate labels</button>
+            <button class="btn" id="printLabels" type="button">Print</button>
+          </div>
+        </div>
+        <div id="labelMsg" class="notice"></div>
+        <div id="labelPrintArea" class="labelGrid"></div>
+      </div>
+    </section>
   </section>
 </main>
+
+<dialog id="assetModal">
+  <div class="dHead">
+    <div>
+      <h2 id="assetModalTitle">Register asset</h2>
+      <div class="dSub" id="assetModalSub">Create or update an asset record</div>
+    </div>
+    <button class="btn btnSm" id="closeAssetModal" type="button">Close</button>
+  </div>
+  <div class="formCardBody">
+    <div class="field"><label class="label">Asset tag</label><input class="input" id="aTag" placeholder="ASSET-001"/></div>
+    <div class="field"><label class="label">Name</label><input class="input" id="aName" placeholder="Patient file box"/></div>
+    <div class="field"><label class="label">Category</label><input class="input" id="aCat" placeholder="Medical file"/></div>
+    <div class="field">
+      <label class="label">Status</label>
+      <select class="input" id="aStatus">
+        <option value="available">Available</option>
+        <option value="in-use">In use</option>
+        <option value="maintenance">Maintenance</option>
+        <option value="missing">Missing</option>
+      </select>
+    </div>
+    <div class="btnRow">
+      <button class="btn btnPrimary" id="saveAsset" type="button">Save asset</button>
+      <button class="btn" id="cancelAsset" type="button">Cancel</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="activityModal">
+  <div class="dHead">
+    <div>
+      <h2 id="activityTitle">User activity</h2>
+      <div class="dSub" id="activitySub"></div>
+    </div>
+    <button class="btn btnSm" id="closeActivityModal" type="button">Close</button>
+  </div>
+  <div class="dBody" id="activityBody"></div>
+</dialog>
 
 <script>
 function $(id){ return document.getElementById(id); }
@@ -117,6 +235,65 @@ function showMsg(id, text, type='ok') {
   const el = $(id);
   el.textContent = text;
   el.className = 'notice ' + (type === 'err' ? 'err' : 'ok');
+}
+
+function statusLabel(status) {
+  return ({
+    available: 'Available',
+    'in-use': 'In use',
+    maintenance: 'Maintenance',
+    missing: 'Missing'
+  })[status] || 'Available';
+}
+
+function statusBadge(status) {
+  const safeStatus = ['available', 'in-use', 'maintenance', 'missing'].includes(status) ? status : 'available';
+  return `<span class="statusBadge status-${safeStatus}">${statusLabel(safeStatus)}</span>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[c]);
+}
+
+function toDate(s) {
+  if (!s) return null;
+  return new Date(s.replace(' ','T')+'Z');
+}
+
+function fullDate(s) {
+  const d = toDate(s);
+  return d ? d.toLocaleString(undefined,{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+}
+
+function actionLabel(a) {
+  return {TRANSFERRED:'Transfer',SCANNED_IN:'Check in',SCANNED_OUT:'Check out'}[a]||(a||'').replace(/_/g,' ');
+}
+
+function showToast(text) {
+  let t = document.getElementById('adminToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'adminToast';
+    t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(12px);
+      background:var(--text);color:var(--bg);font-size:13px;font-weight:600;padding:10px 16px;
+      border-radius:999px;opacity:0;transition:all 0.2s;z-index:9999;pointer-events:none;
+      box-shadow:0 4px 18px rgba(0,0,0,0.18);`;
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.style.opacity = '1';
+  t.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transform = 'translateX(-50%) translateY(12px)';
+  }, 3200);
 }
 
 async function api(url, options) {
@@ -149,11 +326,15 @@ function userRow(u) {
   return `<div class="actItem">
     <div class="actDot"></div>
     <div class="actContent">
-      <span class="actName">${u.name || u.id}</span>
+      <span class="actName">${escapeHtml(u.name || u.id)}</span>
       <span class="actArrow">·</span>
-      <span class="actLoc">${u.access || 'staff'}</span>
+      <span class="actLoc">${escapeHtml(u.access || 'staff')}</span>
     </div>
-    <div class="actMeta"><span>${u.role || '—'}</span><button class="btn btnSm" data-del-user="${u.id}">Delete</button></div>
+    <div class="actMeta">
+      <span>${escapeHtml(u.role || '—')}</span>
+      <button class="btn btnSm" data-user-activity="${escapeHtml(u.id)}">View activity</button>
+      <button class="btn btnSm" data-del-user="${escapeHtml(u.id)}">Delete</button>
+    </div>
   </div>`;
 }
 
@@ -161,17 +342,28 @@ function assetRow(a) {
   return `<div class="actItem">
     <div class="actDot"></div>
     <div class="actContent">
-      <span class="actName">${a.name}</span>
+      <span class="actName">${escapeHtml(a.name)}</span>
+      ${statusBadge(a.status)}
       <span class="actArrow">·</span>
-      <span class="actLoc">${a.tag}</span>
+      <span class="actLoc">${escapeHtml(a.tag)}</span>
     </div>
-    <div class="actMeta"><span>${a.category || '—'}</span><button class="btn btnSm" data-del-asset="${a.tag}">Delete</button></div>
+    <div class="actMeta">
+      <span>${escapeHtml(a.category || '—')}</span>
+      <button class="btn btnSm" data-edit-asset="${escapeHtml(a.tag)}">Edit</button>
+      <button class="btn btnSm" data-del-asset="${escapeHtml(a.tag)}">Remove</button>
+    </div>
   </div>`;
 }
 
 async function loadUsers() {
   const users = await api('/api/users');
   $('usersList').innerHTML = users.length ? users.map(userRow).join('') : '<div class="emptyState">No users yet.</div>';
+  document.querySelectorAll('[data-user-activity]').forEach(btn => {
+    btn.onclick = () => {
+      const user = users.find(u => u.id === btn.dataset.userActivity);
+      openUserActivity(btn.dataset.userActivity, user?.name || btn.dataset.userActivity);
+    };
+  });
   document.querySelectorAll('[data-del-user]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this user?')) return;
@@ -181,9 +373,49 @@ async function loadUsers() {
   });
 }
 
+async function openUserActivity(userId, label) {
+  $('activityTitle').textContent = 'User activity';
+  $('activitySub').textContent = label;
+  $('activityBody').innerHTML = '<div class="emptyState">Loading…</div>';
+  $('activityModal').showModal();
+
+  try {
+    const rows = await api(`/api/users/${encodeURIComponent(userId)}/activity`);
+    if (!rows.length) {
+      $('activityBody').innerHTML = '<div class="emptyState">No activity for this user yet.</div>';
+      return;
+    }
+
+    $('activityBody').innerHTML = rows.map(e => `
+      <div class="evt">
+        <div class="evtLine"><div class="evtDot"></div></div>
+        <div class="evtC">
+          <div class="evtTop">
+            <span class="evtLoc">${escapeHtml(e.asset_name || e.tag)}</span>
+            <span class="evtBadge">${escapeHtml(actionLabel(e.action))}</span>
+          </div>
+          <div class="evtMeta">
+            <span>${escapeHtml(fullDate(e.created_at))}</span>
+            <span>${escapeHtml(e.location || 'Unknown')}</span>
+            <span>${escapeHtml(e.tag)}</span>
+          </div>
+          ${e.notes ? `<div class="evtNote">${escapeHtml(e.notes)}</div>` : ''}
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    $('activityBody').innerHTML = `<div class="emptyState">${escapeHtml(e.message || 'Could not load activity.')}</div>`;
+  }
+}
+
 async function loadAssets() {
   const assets = await api('/api/assets');
   $('assetsList').innerHTML = assets.length ? assets.slice(0, 20).map(assetRow).join('') : '<div class="emptyState">No assets yet.</div>';
+  document.querySelectorAll('[data-edit-asset]').forEach(btn => {
+    btn.onclick = () => {
+      const asset = assets.find(a => a.tag === btn.dataset.editAsset);
+      if (asset) openAssetModal(asset);
+    };
+  });
   document.querySelectorAll('[data-del-asset]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this asset and its events?')) return;
@@ -202,6 +434,135 @@ async function loadAudit() {
       <div class="actMeta"><span>${r.action}</span><span>${r.scanned_by}</span></div>
     </div>`).join('') : '<div class="emptyState">No audit events yet.</div>';
 }
+
+let parsedCsvAssets = [];
+
+function cleanCsvCell(value) {
+  return String(value || '').trim().replace(/^"|"$/g, '').replace(/""/g, '"');
+}
+
+function parseAssetCsv(text) {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  return lines.slice(1).map(line => {
+    const [tag, name, category, status] = line.split(',').map(cleanCsvCell);
+    return { tag, name, category, status: status || 'available' };
+  }).filter(row => row.tag || row.name || row.category || row.status);
+}
+
+function renderImportPreview(rows) {
+  $('confirmImport').disabled = rows.length === 0;
+  if (!rows.length) {
+    $('importPreview').innerHTML = '<div class="emptyState" style="padding:20px;">No valid rows found.</div>';
+    return;
+  }
+
+  $('importPreview').innerHTML = `
+    <table class="importTable">
+      <thead>
+        <tr><th>Tag</th><th>Name</th><th>Category</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 25).map(row => `
+          <tr>
+            <td>${escapeHtml(row.tag)}</td>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${escapeHtml(row.category || '—')}</td>
+            <td>${escapeHtml(row.status || 'available')}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+    ${rows.length > 25 ? `<div class="importHint" style="padding-top:8px;">Showing 25 of ${rows.length} rows.</div>` : ''}
+  `;
+}
+
+async function handleCsvFile(file) {
+  $('csvFileName').textContent = file ? file.name : 'No file selected';
+  parsedCsvAssets = file ? parseAssetCsv(await file.text()) : [];
+  renderImportPreview(parsedCsvAssets);
+}
+
+function resetAssetModal() {
+  delete $('assetModal').dataset.editTag;
+  $('assetModalTitle').textContent = 'Register asset';
+  $('assetModalSub').textContent = 'Create a new asset record';
+  $('saveAsset').textContent = 'Save asset';
+  $('aTag').disabled = false;
+  $('aTag').value = '';
+  $('aName').value = '';
+  $('aCat').value = '';
+  $('aStatus').value = 'available';
+}
+
+function openAssetModal(asset = null) {
+  resetAssetModal();
+  if (asset) {
+    $('assetModal').dataset.editTag = asset.tag;
+    $('assetModalTitle').textContent = 'Edit asset';
+    $('assetModalSub').textContent = asset.tag;
+    $('saveAsset').textContent = 'Update asset';
+    $('aTag').value = asset.tag;
+    $('aTag').disabled = true;
+    $('aName').value = asset.name || '';
+    $('aCat').value = asset.category || '';
+    $('aStatus').value = asset.status || 'available';
+  }
+  $('assetModal').showModal();
+}
+
+function renderLabels(assets) {
+  const grid = $('labelPrintArea');
+  if (!assets.length) {
+    grid.innerHTML = '<div class="emptyState">No assets available for labels.</div>';
+    return;
+  }
+
+  grid.innerHTML = assets.map((asset, idx) => `
+    <div class="labelCard">
+      <div class="labelBrand">GADA</div>
+      <div class="labelQr" id="labelQr${idx}"></div>
+      <div class="labelAssetName">${escapeHtml(asset.name)}</div>
+      <div class="labelAssetTag">${escapeHtml(asset.tag)}</div>
+      ${asset.category ? `<div class="labelAssetCat">${escapeHtml(asset.category)}</div>` : ''}
+    </div>
+  `).join('');
+
+  assets.forEach((asset, idx) => {
+    const el = $(`labelQr${idx}`);
+    new QRCode(el, {
+      text: asset.tag,
+      width: 112,
+      height: 112,
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  });
+}
+
+async function generateLabels() {
+  try {
+    if (typeof QRCode === 'undefined') {
+      throw new Error('QR generator failed to load. Check your connection and try again.');
+    }
+    const assets = await api('/api/assets/labels');
+    renderLabels(assets);
+    showMsg('labelMsg', `${assets.length} label${assets.length === 1 ? '' : 's'} ready.`);
+  } catch(e) {
+    showMsg('labelMsg', e.message, 'err');
+  }
+}
+
+document.querySelectorAll('[data-tab]').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('[data-tab]').forEach(t => {
+      const active = t === tab;
+      t.classList.toggle('active', active);
+      t.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.adminPanel').forEach(panel => {
+      panel.classList.toggle('active', panel.id === `tab-${tab.dataset.tab}`);
+    });
+  };
+});
 
 $('resetUser').onclick = () => ['uId','uName','uRole','uDept','uPin'].forEach(id => $(id).value = '');
 
@@ -223,14 +584,67 @@ $('saveUser').onclick = async () => {
 };
 
 $('saveAsset').onclick = async () => {
-  const body = { tag:$('aTag').value.trim(), name:$('aName').value.trim(), category:$('aCat').value.trim() };
+  const editTag = $('assetModal').dataset.editTag;
+  const body = {
+    tag:$('aTag').value.trim(),
+    name:$('aName').value.trim(),
+    category:$('aCat').value.trim(),
+    status:$('aStatus').value
+  };
   try {
-    await api('/api/assets', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-    showMsg('assetMsg', 'Asset added.');
-    ['aTag','aName','aCat'].forEach(id => $(id).value = '');
+    if (editTag) {
+      await api(`/api/assets/${encodeURIComponent(editTag)}`, {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ name:body.name, category:body.category, status:body.status })
+      });
+      showMsg('assetMsg', 'Asset updated.');
+    } else {
+      await api('/api/assets', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      showMsg('assetMsg', 'Asset added.');
+    }
+    $('assetModal').close();
+    resetAssetModal();
     await loadAssets();
   } catch(e) { showMsg('assetMsg', e.message, 'err'); }
 };
+
+$('openAssetModal').onclick = () => openAssetModal();
+$('openImportCsv').onclick = () => {
+  const box = $('importBox');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+};
+$('chooseCsv').onclick = () => $('csvFile').click();
+$('csvFile').onchange = e => handleCsvFile(e.target.files?.[0]);
+$('confirmImport').onclick = async () => {
+  if (!parsedCsvAssets.length) return;
+  $('confirmImport').disabled = true;
+  try {
+    const result = await api('/api/assets/import', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ assets: parsedCsvAssets })
+    });
+    showToast(`Imported ${result.imported}, skipped ${result.skipped}`);
+    showMsg('assetMsg', `Imported ${result.imported}, skipped ${result.skipped}.`);
+    parsedCsvAssets = [];
+    $('csvFile').value = '';
+    $('csvFileName').textContent = 'No file selected';
+    renderImportPreview([]);
+    await loadAssets();
+  } catch(e) {
+    showToast(e.message);
+    showMsg('assetMsg', e.message, 'err');
+  } finally {
+    $('confirmImport').disabled = parsedCsvAssets.length === 0;
+  }
+};
+$('closeAssetModal').onclick = () => $('assetModal').close();
+$('cancelAsset').onclick = () => $('assetModal').close();
+$('assetModal').addEventListener('close', resetAssetModal);
+$('closeActivityModal').onclick = () => $('activityModal').close();
+$('generateLabels').onclick = generateLabels;
+$('printLabels').onclick = () => window.print();
 
 document.addEventListener('DOMContentLoaded', async () => {
   const ok = await requireAdmin();

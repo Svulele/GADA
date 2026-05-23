@@ -44,11 +44,12 @@ function formatUser(id, cfg) {
 // ── middleware ─────────────────────────────────────────────
 app.set("trust proxy", 1);
 app.use(express.json());
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+  console.error('FATAL: SESSION_SECRET must be set in production');
+  process.exit(1);
+}
 app.use(session({
-  secret: process.env.SESSION_SECRET || (() => {
-    console.warn("⚠️  SESSION_SECRET not set — using insecure default. Set it in .env for production.");
-    return "gada-dev-secret-change-me-in-production";
-  })(),
+  secret: process.env.SESSION_SECRET || "gada-dev-secret-change-me-in-production",
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -96,6 +97,8 @@ function requireStaff(req, res, next) {
   if (access === "viewer") return res.status(403).json({ error: "Scan access required" });
   next();
 }
+
+const VALID_ASSET_STATUSES = new Set(["available", "in-use", "maintenance", "missing"]);
 
 // ── safe public config (locations + user names only, no PINs) ──
 app.get("/api/config", (req, res) => {
@@ -151,6 +154,38 @@ app.get("/api/assets", requireAuth, (req, res) => {
   res.json(rows);
 });
 
+app.get("/api/assets/labels", requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT tag, name, category
+    FROM assets
+    ORDER BY name COLLATE NOCASE, tag COLLATE NOCASE
+  `).all();
+  res.json(rows);
+});
+
+app.get("/api/alerts", requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    WITH asset_last_seen AS (
+      SELECT a.tag, a.name, a.status,
+        (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
+        (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
+      FROM assets a
+    )
+    SELECT tag, name, last_seen, last_location, status,
+      CASE
+        WHEN last_seen IS NULL THEN NULL
+        ELSE ROUND((julianday('now') - julianday(last_seen)) * 24, 1)
+      END AS hours_since
+    FROM asset_last_seen
+    WHERE status = 'missing'
+      OR (last_seen IS NOT NULL AND last_seen < datetime('now', '-24 hours'))
+    ORDER BY
+      CASE WHEN status = 'missing' THEN 0 ELSE 1 END,
+      hours_since DESC
+  `).all();
+  res.json(rows);
+});
+
 app.get("/api/assets/:tag", requireAuth, (req, res) => {
   const asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
@@ -161,15 +196,63 @@ app.get("/api/assets/:tag", requireAuth, (req, res) => {
 // create asset — admin only
 app.post("/api/assets", requireAdmin, (req, res) => {
   const { tag, name, category } = req.body;
+  const status = req.body.status || "available";
   if (!tag || !name) return res.status(400).json({ error: "tag and name required" });
+  if (!VALID_ASSET_STATUSES.has(status)) return res.status(400).json({ error: "Invalid asset status" });
   try {
-    const info = db.prepare("INSERT INTO assets (tag, name, category) VALUES (?, ?, ?)").run(tag, name, category || null);
-    const asset = { asset_id: info.lastInsertRowid, tag, name, category: category || null };
+    const info = db.prepare("INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)")
+      .run(tag, name, category || null, status);
+    const asset = { asset_id: info.lastInsertRowid, tag, name, category: category || null, status };
     io.emit("asset:created", asset);
     res.json(asset);
   } catch (e) {
     res.status(409).json({ error: "Tag already exists" });
   }
+});
+
+app.post("/api/assets/import", requireAdmin, (req, res) => {
+  const assets = Array.isArray(req.body.assets) ? req.body.assets : null;
+  if (!assets) return res.status(400).json({ error: "assets array required" });
+
+  const insert = db.prepare("INSERT OR IGNORE INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)");
+  let imported = 0;
+  let skipped = 0;
+
+  const runImport = db.transaction(rows => {
+    for (const row of rows) {
+      const tag = String(row.tag || "").trim();
+      const name = String(row.name || "").trim();
+      const category = String(row.category || "").trim();
+      const status = String(row.status || "available").trim() || "available";
+
+      if (!tag || !name || !VALID_ASSET_STATUSES.has(status)) {
+        skipped++;
+        continue;
+      }
+
+      const info = insert.run(tag, name, category || null, status);
+      if (info.changes) imported++;
+      else skipped++;
+    }
+  });
+
+  runImport(assets);
+  if (imported > 0) io.emit("asset:created", { bulk: true, imported });
+  res.json({ imported, skipped });
+});
+
+// update asset
+app.put("/api/assets/:tag", requireAdmin, (req, res) => {
+  const { name, category, status } = req.body;
+  const valid = ['available','in-use','maintenance','missing'];
+  if (status && !valid.includes(status))
+    return res.status(400).json({ error: "Invalid status" });
+
+  db.prepare("UPDATE assets SET name=COALESCE(?,name), category=COALESCE(?,category), status=COALESCE(?,status) WHERE tag=?")
+    .run(name || null, category || null, status || null, req.params.tag);
+
+  io.emit("asset:updated", { tag: req.params.tag });
+  res.json({ ok: true });
 });
 
 // delete asset — admin only
@@ -194,7 +277,7 @@ app.post("/api/scan", requireStaff, (req, res) => {
   let asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
   if (!asset) {
     const info = db.prepare("INSERT INTO assets (tag, name) VALUES (?, ?)").run(tag, `Unknown Asset (${tag})`);
-    asset = { asset_id: info.lastInsertRowid, tag, name: `Unknown Asset (${tag})`, category: null };
+    asset = { asset_id: info.lastInsertRowid, tag, name: `Unknown Asset (${tag})`, category: null, status: "available" };
   }
 
   const eventInfo = db.prepare("INSERT INTO events (asset_id, action, location, scanned_by, notes) VALUES (?, ?, ?, ?, ?)")
@@ -263,6 +346,27 @@ app.get("/api/audit/export", requireAdmin, (req, res) => {
 });
 
 // ── user management — admin only ──────────────────────────
+app.post("/api/users/change-pin", requireAuth, (req, res) => {
+  const { currentPin, newPin } = req.body;
+  if (!currentPin || !newPin) return res.status(400).json({ error: "currentPin and newPin required" });
+  if (String(newPin).length < 4) return res.status(400).json({ error: "New PIN must be at least 4 digits" });
+  if (!/^\d+$/.test(String(newPin))) return res.status(400).json({ error: "New PIN must be numbers only" });
+
+  const cfg = loadConfig();
+  const idx = (cfg.users || []).findIndex(u =>
+    typeof u === "string" ? u === String(req.session.userId) : String(u.id) === String(req.session.userId)
+  );
+  if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+  const user = cfg.users[idx];
+  if (typeof user === "string" || !user.pin) return res.status(400).json({ error: "No PIN configured for this account" });
+  if (String(currentPin) !== String(user.pin)) return res.status(401).json({ error: "Current PIN is incorrect" });
+
+  cfg.users[idx] = { ...user, pin: String(newPin) };
+  saveConfig(cfg);
+  res.json({ ok: true });
+});
+
 app.get("/api/users", requireAdmin, (req, res) => {
   const cfg = loadConfig();
   // never send PINs to the client
@@ -272,6 +376,20 @@ app.get("/api/users", requireAdmin, (req, res) => {
     return rest;
   });
   res.json(safe);
+});
+
+app.get("/api/users/:id/activity", requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT
+      e.event_id, e.action, e.location, e.scanned_by, e.notes, e.created_at,
+      a.name AS asset_name, a.tag
+    FROM events e
+    JOIN assets a ON a.asset_id = e.asset_id
+    WHERE e.scanned_by = ?
+    ORDER BY e.created_at DESC
+    LIMIT 100
+  `).all(req.params.id);
+  res.json(rows);
 });
 
 app.post("/api/users", requireAdmin, (req, res) => {

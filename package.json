@@ -6,11 +6,12 @@
   "type": "commonjs",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "backup": "bash backup.sh"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.6.2",
     "express": "^5.2.1",

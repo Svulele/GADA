@@ -113,6 +113,23 @@
           <button class="btn btnSm" id="logoutBtn" style="width:100%;justify-content:center;">
             Sign out
           </button>
+          <button class="pinLink" id="togglePinForm" type="button">Change PIN</button>
+          <div class="pinForm" id="pinForm" style="display:none;">
+            <div class="field">
+              <label class="label" for="currentPin">Current PIN</label>
+              <input class="input" id="currentPin" type="password" inputmode="numeric" autocomplete="current-password"/>
+            </div>
+            <div class="field">
+              <label class="label" for="newPin">New PIN</label>
+              <input class="input" id="newPin" type="password" inputmode="numeric" autocomplete="new-password"/>
+            </div>
+            <div class="field">
+              <label class="label" for="confirmPin">Confirm PIN</label>
+              <input class="input" id="confirmPin" type="password" inputmode="numeric" autocomplete="new-password"/>
+            </div>
+            <button class="btn btnSm btnPrimary" id="savePin" type="button" style="width:100%;justify-content:center;">Save PIN</button>
+            <div class="notice" id="pinMsg"></div>
+          </div>
         </div>
       </div>
 

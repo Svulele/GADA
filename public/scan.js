@@ -60,9 +60,71 @@ function showMsg(text, type) {
   if (text && type !== 'err') setTimeout(()=>{ el.className='notice'; }, 5000);
 }
 
+function showPinMsg(text, type) {
+  const el = $('pinMsg');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'notice ' + (type==='err' ? 'err' : 'ok');
+}
+
 $('logoutBtn').onclick = async () => {
   await fetch('/api/logout',{method:'POST',credentials:'include'}).catch(()=>{});
   window.location.href = '/login.html';
+};
+
+$('togglePinForm').onclick = () => {
+  const form = $('pinForm');
+  const isOpen = form.style.display !== 'none';
+  form.style.display = isOpen ? 'none' : 'block';
+  $('togglePinForm').textContent = isOpen ? 'Change PIN' : 'Cancel PIN change';
+  if (!isOpen) $('currentPin').focus();
+};
+
+$('savePin').onclick = async () => {
+  const currentPin = $('currentPin').value.trim();
+  const newPin = $('newPin').value.trim();
+  const confirmPin = $('confirmPin').value.trim();
+
+  if (!currentPin || !newPin || !confirmPin) {
+    showPinMsg('Fill in all PIN fields.', 'err');
+    return;
+  }
+  if (newPin !== confirmPin) {
+    showPinMsg('New PIN and confirmation do not match.', 'err');
+    $('confirmPin').focus();
+    return;
+  }
+  if (newPin.length < 4 || !/^\d+$/.test(newPin)) {
+    showPinMsg('New PIN must be at least 4 digits and numbers only.', 'err');
+    $('newPin').focus();
+    return;
+  }
+
+  const btn = $('savePin');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/users/change-pin', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPin, newPin })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      showPinMsg(data.error || 'Current PIN is incorrect.', 'err');
+      return;
+    }
+    if (!res.ok) throw new Error(data.error || 'Could not change PIN.');
+
+    ['currentPin','newPin','confirmPin'].forEach(id => $(id).value = '');
+    showPinMsg('PIN changed.', 'ok');
+  } catch(err) {
+    showPinMsg(err.message || 'Could not change PIN.', 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save PIN';
+  }
 };
 
 $('clear').onclick = () => {

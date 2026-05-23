@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS assets (
   tag TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   category TEXT,
+  status TEXT NOT NULL DEFAULT 'available',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -29,5 +30,11 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_asset_id ON events(asset_id);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 `);
+
+try {
+  db.exec("ALTER TABLE assets ADD COLUMN status TEXT NOT NULL DEFAULT 'available'");
+} catch (e) {
+  if (!String(e.message || "").includes("duplicate column name")) throw e;
+}
 
 module.exports = db;

@@ -3,6 +3,7 @@ const dTitle  = document.getElementById('dTitle');
 const dTag    = document.getElementById('dTag');
 const dClose  = document.getElementById('dClose');
 const dBody   = document.getElementById('dBody');
+let alertsDismissed = false;
 
 dClose.addEventListener('click', () => modal.close());
 modal.addEventListener('click', e => { if (e.target === modal) modal.close(); });
@@ -27,6 +28,92 @@ function fullDate(s) {
 }
 function actionLabel(a) {
   return {TRANSFERRED:'Transfer',SCANNED_IN:'Check in',SCANNED_OUT:'Check out'}[a]||(a||'').replace(/_/g,' ');
+}
+function statusLabel(status) {
+  return ({
+    available: 'Available',
+    'in-use': 'In use',
+    maintenance: 'Maintenance',
+    missing: 'Missing'
+  })[status] || 'Available';
+}
+function statusBadge(status) {
+  const safeStatus = ['available', 'in-use', 'maintenance', 'missing'].includes(status) ? status : 'available';
+  return `<span class="statusBadge status-${safeStatus}">${statusLabel(safeStatus)}</span>`;
+}
+function ensureAlertsBanner() {
+  let banner = document.getElementById('alertsBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'alertsBanner';
+    banner.className = 'alertsBanner';
+    const grid = document.getElementById('facilityGrid');
+    grid.parentNode.insertBefore(banner, grid);
+  }
+  return banner;
+}
+function renderAlerts(alerts) {
+  const banner = ensureAlertsBanner();
+  if (!alerts.length) {
+    alertsDismissed = false;
+    banner.remove();
+    return;
+  }
+  if (alertsDismissed) {
+    banner.remove();
+    return;
+  }
+
+  banner.innerHTML = `
+    <div class="alertsHead">
+      <div>
+        <div class="alertsTitle">Asset alerts</div>
+        <div class="alertsSub">${alerts.length} asset${alerts.length === 1 ? '' : 's'} need attention</div>
+      </div>
+      <button class="alertBannerDismiss" type="button" aria-label="Dismiss alerts">Dismiss</button>
+    </div>
+    <div class="alertsList">
+      ${alerts.map(a => `
+        <div class="alertRow" data-tag="${a.tag}">
+          <div class="alertAsset">
+            <span class="actName">${a.name}</span>
+            ${statusBadge(a.status)}
+          </div>
+          <div class="alertMeta">
+            <span>${a.last_seen ? timeAgo(a.last_seen) : 'Never seen'}</span>
+            <span>${a.last_location || 'Unknown location'}</span>
+          </div>
+          <button class="btn btnSm" type="button" data-mark-found="${a.tag}">Mark found</button>
+        </div>`).join('')}
+    </div>`;
+
+  banner.querySelector('.alertBannerDismiss').onclick = () => {
+    alertsDismissed = true;
+    banner.remove();
+  };
+  banner.querySelectorAll('[data-mark-found]').forEach(btn => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        await fetch(`/api/assets/${encodeURIComponent(btn.dataset.markFound)}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'available' })
+        }).then(async r => {
+          if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            throw new Error(data.error || 'Could not mark asset found');
+          }
+        });
+        alertsDismissed = false;
+        await load();
+      } catch(e) {
+        btn.disabled = false;
+        showToast(e.message);
+      }
+    };
+  });
 }
 
 // icon per location type
@@ -74,8 +161,11 @@ async function openHistory(tag) {
 }
 
 // ── render facility grid ──────────────────────────
-function renderFacility(assets, locations) {
+function renderFacility(assets, locations, alerts = []) {
   const grid = document.getElementById('facilityGrid');
+  const overdueLocations = new Set(alerts
+    .filter(a => a.last_location && Number(a.hours_since) >= 24)
+    .map(a => a.last_location));
 
   // group assets by last_location
   const byLoc = {};
@@ -93,7 +183,7 @@ function renderFacility(assets, locations) {
     const overflow = count - 3;
 
     return `
-      <div class="locCard ${count === 0 ? 'locCardEmpty' : ''}">
+      <div class="locCard ${count === 0 ? 'locCardEmpty' : ''} ${overdueLocations.has(loc) ? 'locCardAlert' : ''}">
         <div class="lcHead">
           <div class="lcIcon">${locationIcon(loc)}</div>
           <div class="lcName">${loc}</div>
@@ -105,7 +195,10 @@ function renderFacility(assets, locations) {
             : preview.map(a => `
                 <div class="lcAssetRow" data-tag="${a.tag}">
                   <div style="min-width:0;">
-                    <div class="lcAssetName">${a.name}</div>
+                    <div class="lcAssetTitle">
+                      <span class="lcAssetName">${a.name}</span>
+                      ${statusBadge(a.status)}
+                    </div>
                     ${a.category ? `<div class="catBadge">${a.category}</div>` : ''}
                   </div>
                   <span class="lcAssetTime">${timeAgo(a.last_seen)}</span>
@@ -140,6 +233,7 @@ function renderActivity(assets) {
       <div class="actDot"></div>
       <div class="actContent">
         <span class="actName">${a.name}</span>
+        ${statusBadge(a.status)}
         <span class="actArrow">→</span>
         <span class="actLoc">${a.last_location || 'Unknown'}</span>
       </div>
@@ -177,6 +271,9 @@ async function load() {
       `${filled} of ${locations.length} locations active`;
 
     renderFacility(assets, locations);
+    const alerts = await fetch('/api/alerts', { credentials:'include' }).then(r=>r.json());
+    renderAlerts(alerts);
+    renderFacility(assets, locations, alerts);
     renderActivity(assets);
   } catch(e) {
     console.error(e);
@@ -203,6 +300,7 @@ try {
     showToast(`${payload.name} → ${payload.location}`);
   });
   socket.on('asset:created', () => load());
+  socket.on('asset:updated', () => load());
   socket.on('asset:deleted', () => load());
 } catch(e) { console.warn('WebSocket unavailable', e); }
 
