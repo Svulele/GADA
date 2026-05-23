@@ -211,7 +211,10 @@ function renderFacility(assets, locations, alerts = []) {
 
   // click to view history
   grid.querySelectorAll('.lcAssetRow').forEach(el => {
-    el.addEventListener('click', () => openHistory(el.dataset.tag));
+    el.addEventListener('click', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      showAssetPopover(el.dataset.tag, el, ev);
+    });
   });
 }
 
@@ -244,9 +247,73 @@ function renderActivity(assets) {
     </div>`).join('');
 
   feed.querySelectorAll('.actItem').forEach(el => {
-    el.addEventListener('click', () => openHistory(el.dataset.tag));
+    el.addEventListener('click', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      showAssetPopover(el.dataset.tag, el, ev);
+    });
   });
 }
+
+// ── asset popover menu ─────────────────────────
+let _assetPopover = null;
+function createAssetPopover() {
+  if (_assetPopover) return _assetPopover;
+  const p = document.createElement('div');
+  p.className = 'popoverMenu';
+  p.setAttribute('role','menu');
+  p.tabIndex = -1;
+  p.innerHTML = `
+    <button class="menuItem" data-action="history" type="button">View history</button>
+    <button class="menuItem" data-action="transfer" type="button">Transfer asset</button>
+  `;
+  p.addEventListener('click', e => e.stopPropagation());
+  p.addEventListener('keydown', e => { if (e.key === 'Escape') hideAssetPopover(); });
+  document.body.appendChild(p);
+  _assetPopover = p;
+  return p;
+}
+
+function showAssetPopover(tag, anchorEl, ev) {
+  const pop = createAssetPopover();
+  // attach handlers
+  pop.querySelectorAll('.menuItem').forEach(btn => {
+    btn.onclick = (e) => {
+      const act = btn.dataset.action;
+      hideAssetPopover();
+      if (act === 'history') return openHistory(tag);
+      if (act === 'transfer') return window.location.href = '/scan.html?tag=' + encodeURIComponent(tag);
+    };
+  });
+
+  // position near anchor or click
+  const rect = anchorEl.getBoundingClientRect();
+  pop.style.left = (rect.left + window.scrollX) + 'px';
+  pop.style.top  = (rect.top + window.scrollY + rect.height + 6) + 'px';
+  pop.style.display = 'block';
+  requestAnimationFrame(() => {
+    const r = pop.getBoundingClientRect();
+    // adjust if overflowing right
+    if (r.right > window.innerWidth) pop.style.left = (window.scrollX + window.innerWidth - r.width - 8) + 'px';
+    // if bottom overflow, position above
+    if (r.bottom > window.scrollY + window.innerHeight) pop.style.top = (rect.top + window.scrollY - r.height - 6) + 'px';
+    pop.focus();
+  });
+  // global handlers to close
+  setTimeout(() => {
+    document.addEventListener('click', _closeOnDocClick);
+    document.addEventListener('keydown', _closeOnEsc);
+  }, 0);
+}
+
+function hideAssetPopover() {
+  if (!_assetPopover) return;
+  _assetPopover.style.display = 'none';
+  document.removeEventListener('click', _closeOnDocClick);
+  document.removeEventListener('keydown', _closeOnEsc);
+}
+
+function _closeOnDocClick(e) { hideAssetPopover(); }
+function _closeOnEsc(e) { if (e.key === 'Escape') hideAssetPopover(); }
 
 // ── main load ─────────────────────────────────────
 async function load() {

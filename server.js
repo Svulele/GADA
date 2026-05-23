@@ -113,6 +113,19 @@ app.get("/api/config", (req, res) => {
   });
 });
 
+app.get("/api/kiosk", (req, res) => {
+  const cfg = loadConfig();
+  const assets = db.prepare(`
+    SELECT a.tag, a.name, a.category, a.status,
+      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
+      (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen,
+      (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by
+    FROM assets a
+    ORDER BY a.tag COLLATE NOCASE
+  `).all();
+  res.json({ locations: cfg.locations || [], assets });
+});
+
 // ── auth routes ────────────────────────────────────────────
 app.post("/api/login", loginLimiter, (req, res) => {
   const { userId, pin } = req.body;
@@ -343,6 +356,53 @@ app.get("/api/audit/export", requireAdmin, (req, res) => {
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename="gada-audit-${new Date().toISOString().slice(0,10)}.csv"`);
   res.send(csv);
+});
+
+app.get("/api/reports/shift", requireAdmin, (req, res) => {
+  const { from, to, operator } = req.query;
+  if (!from || !to) return res.status(400).json({ error: "from and to required" });
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    return res.status(400).json({ error: "Invalid date range" });
+  }
+
+  const fromTs = fromDate.toISOString().slice(0, 19).replace('T', ' ');
+  const toTs = toDate.toISOString().slice(0, 19).replace('T', ' ');
+  const rows = db.prepare(`
+    SELECT a.tag, a.name, a.category, e.action, e.location, e.scanned_by, e.notes, e.created_at
+    FROM events e
+    JOIN assets a ON a.asset_id = e.asset_id
+    WHERE e.created_at >= ? AND e.created_at <= ?
+    ${operator ? 'AND e.scanned_by = ?' : ''}
+    ORDER BY e.created_at ASC
+  `).all(...(operator ? [fromTs, toTs, operator] : [fromTs, toTs]));
+
+  const summary = {
+    total_scans: rows.length,
+    unique_assets: new Set(rows.map(r => r.tag)).size,
+    unique_operators: new Set(rows.map(r => r.scanned_by)).size,
+    locations_active: new Set(rows.map(r => r.location)).size
+  };
+
+  const countBy = (key) => Object.entries(rows.reduce((acc, row) => {
+    const value = row[key] || 'Unknown';
+    acc[value] = (acc[value] || 0) + 1;
+    return acc;
+  }, {})).map(([label, count]) => ({ [key]: label, count }));
+
+  const byOperator = countBy('scanned_by').sort((a, b) => b.count - a.count).map(r => ({ scanned_by: r.scanned_by, count: r.count }));
+  const byLocation = countBy('location').sort((a, b) => b.count - a.count).map(r => ({ location: r.location, count: r.count }));
+  const byAction = countBy('action').sort((a,b) => b.count - a.count).map(r => ({ action: r.action, count: r.count }));
+
+  res.json({
+    period: { from: fromDate.toISOString(), to: toDate.toISOString() },
+    summary,
+    by_operator: byOperator,
+    by_location: byLocation,
+    by_action: byAction,
+    events: rows
+  });
 });
 
 // ── user management — admin only ──────────────────────────

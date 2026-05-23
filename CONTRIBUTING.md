@@ -2,6 +2,12 @@
 
 This document is for developers continuing work on GADA. It covers the codebase architecture, coding conventions, and a detailed roadmap of planned features with exact file-level instructions for each.
 
+## Current Status
+
+- **Fully built and working**: dashboard, scan workflow, admin panel, audit export, mobile scan page, kiosk dashboard, shift reporting, asset editing, CSV import, user PIN change, real-time updates, dark mode.
+- **Planned but not yet started**: deeper asset lifecycle analytics, scheduled maintenance reminders, multi-tenant site support.
+- **Known issues / limitations**: plaintext PIN storage in `config.json`, no asset restore audit workflow, SQLite is single-process and not suited for high concurrency.
+
 ---
 
 ## Architecture Overview
@@ -109,7 +115,7 @@ try {
 
 ## Planned Features — Implementation Guide
 
-### 1. Asset Status Field
+### 1. Asset Status Field ✅
 
 **Priority: High** — makes GADA feel medical, not generic.
 
@@ -157,7 +163,7 @@ Add `status TEXT NOT NULL DEFAULT 'available'` to the `assets` CREATE TABLE stat
 
 ---
 
-### 2. Overdue / Missing Alerts
+### 2. Overdue / Missing Alerts ✅
 
 **Priority: High** — a facility needs to know when equipment goes dark.
 
@@ -220,7 +226,7 @@ Add to `body.dark`: `--amber: #d4952a; --amber-bg: #1f1800; --amber-mid: #4a3800
 
 ---
 
-### 3. QR Code Label Generator
+### 3. QR Code Label Generator ✅
 
 **Priority: Medium** — best demo feature.
 
@@ -346,7 +352,7 @@ Already described in feature 1 above — add `PUT /api/assets/:tag`.
 
 ---
 
-### 5. Per-User Activity View
+### 5. Per-User Activity View ✅
 
 **Priority: Medium**
 
@@ -375,7 +381,7 @@ app.get("/api/users/:id/activity", requireAdmin, (req, res) => {
 
 ---
 
-### 6. Bulk Asset Import via CSV
+### 6. Bulk Asset Import via CSV ✅
 
 **Priority: Medium**
 
@@ -425,7 +431,7 @@ MED-PM-003,Patient Monitor,Medical Equipment
 
 ---
 
-### 7. User PIN Change
+### 7. User PIN Change ✅
 
 **Priority: Medium**
 
@@ -509,7 +515,7 @@ document.getElementById('cpSave').onclick = async () => {
 
 ---
 
-### 8. Production `.env` Hard Fail
+### 8. Production `.env` Hard Fail ✅
 
 **`server.js`**
 Replace the current `SESSION_SECRET` block:
@@ -579,4 +585,8 @@ Run `chmod +x backup.sh` after creating it.
 - [ ] Viewer account cannot scan (submit button disabled)
 - [ ] Admin CSV export works and contains all events
 - [ ] WebSocket live update works across two browser tabs
+- [ ] Mobile scan page works on phone browser
+- [ ] Kiosk page displays correctly on large screen
+- [ ] Shift report generates correctly for today
+- [ ] Transfer from dashboard pre-fills the scan page correctly
 

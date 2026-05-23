@@ -20,6 +20,17 @@ GADA is a secure, real-time chain-of-custody system for tracking physical assets
 - **Dark mode** — persists across sessions via localStorage
 - **Tag autocomplete** — scan page suggests known asset tags as you type
 - **Category system** — assets grouped by category, shown on location cards
+- **Mobile scan page** — `public/mobile.html`: mobile-optimised scan page with camera barcode support
+- **Kiosk dashboard** — `public/kiosk.html`: read-only wall screen dashboard for TV/tablet display
+- **Shift reports** — shift-based reporting in the admin panel (CSV and on-screen)
+- **Asset status tracking** — available / in-use / maintenance / missing across the app
+- **Overdue and missing asset alerts** — dashboard warnings for assets that need attention
+- **QR code label generator** — admin-only printable asset tag creation
+- **Asset editing** — rename assets and change category/status from admin view
+- **Bulk CSV import** — admin-only bulk asset upload from CSV
+- **User PIN change** — change your own PIN directly from the scan page
+- **Dashboard click-to-transfer** — click assets to view history or jump straight to scan
+- **Scan page asset search** — type an asset name or tag to find and pre-fill the tag
 
 ---
 
@@ -54,8 +65,10 @@ GADA/
 └── public/
     ├── index.html     # Dashboard (facility grid + activity feed)
     ├── scan.html      # Scan workflow page
+    ├── mobile.html    # Mobile scan page optimised for one-handed use
     ├── login.html     # PIN login (two-step: select user → enter PIN)
-    ├── admin.html     # Admin panel (users, assets, audit log, labels)
+    ├── admin.html     # Admin panel (users, assets, audit log, labels, shift reports)
+    ├── kiosk.html     # Read-only wall screen dashboard
     ├── app.js         # Dashboard JS (facility grid, WebSocket, Cmd+K, dark mode)
     ├── scan.js        # Scan page JS (auth, submit, undo, autocomplete)
     └── style.css      # All styles (light + dark mode via CSS variables)
@@ -169,6 +182,8 @@ All routes require authentication unless noted. Admin-only routes return `403` i
 |---|---|---|---|
 | `GET` | `/api/assets` | Auth | All assets with last location and time |
 | `GET` | `/api/assets/:tag` | Auth | Single asset + full event history |
+| `PUT` | `/api/assets/:tag` | Admin | Update asset name, category, or status |
+| `POST` | `/api/assets/import` | Admin | Bulk import assets from CSV |
 | `POST` | `/api/assets` | Admin | Register new asset `{ tag, name, category }` |
 | `DELETE` | `/api/assets/:tag` | Admin | Delete asset and all its history |
 
@@ -177,6 +192,13 @@ All routes require authentication unless noted. Admin-only routes return `403` i
 |---|---|---|---|
 | `POST` | `/api/scan` | Staff | `{ tag, action, location, notes }` → logs movement |
 | `DELETE` | `/api/scan/undo/:eventId` | Staff | Undo a scan within 30 seconds |
+
+### Reports
+| Method | Route | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/reports/shift` | Admin | Shift-based report (query: `from`, `to`, `operator`) — CSV/JSON export |
+| `GET` | `/api/kiosk` | Public | Read-only kiosk payload: `{ locations, assets }` (no PINs or personal data) |
+| `GET` | `/api/alerts` | Auth | Overdue and missing assets for dashboard alerting |
 
 ### Audit
 | Method | Route | Access | Description |
@@ -188,6 +210,8 @@ All routes require authentication unless noted. Admin-only routes return `403` i
 | Method | Route | Access | Description |
 |---|---|---|---|
 | `GET` | `/api/users` | Admin | All users (no PINs) |
+| `GET` | `/api/users/:id/activity` | Admin | Activity log for a specific user |
+| `POST` | `/api/users/change-pin` | Auth | User changes their own PIN |
 | `POST` | `/api/users` | Admin | Create user `{ id, name, role, department, access, pin }` |
 | `PUT` | `/api/users/:id` | Admin | Update user fields |
 | `DELETE` | `/api/users/:id` | Admin | Remove user |

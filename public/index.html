@@ -29,6 +29,7 @@
     <nav class="nav">
       <a class="navLink active" href="/">Dashboard</a>
       <a class="navLink" href="/scan.html">Scan</a>
+      <a class="navLink" href="/kiosk.html" id="kioskNavLink" style="display:none;">Kiosk</a>
       <a class="navLink" href="/admin.html" id="adminNavLink" style="display:none;">Admin</a>
     </nav>
     <div class="navRight" style="display:flex;align-items:center;gap:8px;">
@@ -101,6 +102,7 @@ async function loadUser() {
     document.getElementById('userRole').textContent = u.role||'';
     if (u.access === 'admin') {
       document.getElementById('adminNavLink').style.display = '';
+      document.getElementById('kioskNavLink').style.display = '';
     }
   } catch { window.location.href='/login.html'; }
 }

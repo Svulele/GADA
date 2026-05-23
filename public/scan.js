@@ -178,7 +178,57 @@ async function init() {
   const user = await requireAuth();
   if (user) setUser(user);
   $('action').value = 'TRANSFERRED';
+  // If a tag is provided in the URL, prefill it and focus the location selector
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const preTag = params.get('tag');
+    if (preTag) {
+      $('tag').value = String(preTag).trim();
+      const loc = $('location');
+      if (loc) loc.focus();
+      return;
+    }
+  } catch (e) { /* ignore */ }
+
   $('tag').focus();
+
+    // setup searchable asset picker for the tag input
+    const tagInput = $('tag');
+    createPicker();
+    function onTagInput() {
+      const q = String(tagInput.value || '').trim().toLowerCase();
+      if (!q) { hidePicker(); return; }
+      const matches = ASSETS.filter(a =>
+        (a.tag||'').toLowerCase().includes(q) || (a.name||'').toLowerCase().includes(q)
+      ).slice(0, 8);
+      if (matches.length) renderPicker(matches, tagInput);
+      else hidePicker();
+    }
+
+    function highlightPicker(idx) {
+      const el = _pickerEl;
+      if (!el) return;
+      el.querySelectorAll('.assetItem').forEach((it,i)=> it.classList.toggle('highlight', i===idx));
+      _pickerIndex = idx;
+      const cur = el.querySelector(`.assetItem[data-idx="${idx}"]`);
+      if (cur) cur.scrollIntoView({block:'nearest'});
+    }
+
+    function onTagKeyDown(e) {
+      if (!_pickerEl || _pickerEl.style.display==='none') return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); const next = Math.min(_pickerIndex+1, _pickerMatches.length-1); highlightPicker(next); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); const prev = Math.max(_pickerIndex-1, 0); highlightPicker(prev); }
+      else if (e.key === 'Enter') {
+        if (_pickerIndex >= 0 && _pickerMatches[_pickerIndex]) {
+          e.preventDefault(); const t = _pickerMatches[_pickerIndex].tag; tagInput.value = t; hidePicker(); const loc = $('location'); if (loc) loc.focus();
+        }
+      } else if (e.key === 'Escape') { hidePicker(); }
+    }
+
+    tagInput.addEventListener('input', onTagInput);
+    tagInput.addEventListener('keydown', onTagKeyDown);
+    tagInput.addEventListener('focus', () => { if (tagInput.value) onTagInput(); });
+    tagInput.addEventListener('click', e => e.stopPropagation());
 }
 
 document.addEventListener('DOMContentLoaded', init);
@@ -313,16 +363,81 @@ $('submit').onclick = async () => {
 };
 
 // ── TAG AUTOCOMPLETE ──────────────────────────────
+// loaded assets cache for the picker
+let ASSETS = [];
+
 async function loadTagSuggestions() {
   try {
     const assets = await fetch('/api/assets', {credentials:'include'}).then(r=>r.json());
+    ASSETS = Array.isArray(assets) ? assets : [];
     const dl = document.getElementById('tagSuggestions');
-    if (!dl) return;
-    dl.innerHTML = assets.map(a =>
-      `<option value="${a.tag}" label="${a.name} — ${a.tag}">`
-    ).join('');
-  } catch {}
+    if (dl) {
+      dl.innerHTML = ASSETS.map(a =>
+        `<option value="${a.tag}" label="${a.name} — ${a.tag}">`
+      ).join('');
+    }
+  } catch { ASSETS = []; }
 }
+
+// asset picker dropdown
+let _pickerEl = null;
+let _pickerMatches = [];
+let _pickerIndex = -1;
+function createPicker() {
+  if (_pickerEl) return _pickerEl;
+  const el = document.createElement('div');
+  el.className = 'assetPicker';
+  el.style.display = 'none';
+  el.setAttribute('role','listbox');
+  document.body.appendChild(el);
+  _pickerEl = el;
+  // click inside should not close
+  el.addEventListener('click', e => e.stopPropagation());
+  return el;
+}
+
+function renderPicker(items, inputEl) {
+  const el = createPicker();
+  _pickerMatches = items;
+  _pickerIndex = -1;
+  if (!items || !items.length) { el.style.display = 'none'; return; }
+  el.innerHTML = items.map((a, i) =>
+    `<div class="assetItem" role="option" data-idx="${i}" data-tag="${escapeHtml(a.tag)}">
+       <div class="assetItemName">${escapeHtml(a.name)}</div>
+       <div class="assetItemTag">${escapeHtml(a.tag)}</div>
+     </div>`
+  ).join('');
+
+  // position
+  const r = inputEl.getBoundingClientRect();
+  el.style.left = (window.scrollX + r.left) + 'px';
+  el.style.top  = (window.scrollY + r.bottom + 6) + 'px';
+  el.style.minWidth = Math.max(220, r.width) + 'px';
+  el.style.display = 'block';
+
+  // attach click handlers
+  el.querySelectorAll('.assetItem').forEach(item => {
+    item.addEventListener('click', () => {
+      const tag = item.dataset.tag;
+      inputEl.value = tag;
+      hidePicker();
+      // focus next control (location)
+      const loc = document.getElementById('location'); if (loc) loc.focus();
+    });
+  });
+}
+
+function hidePicker() {
+  if (_pickerEl) _pickerEl.style.display = 'none';
+  _pickerMatches = [];
+  _pickerIndex = -1;
+}
+
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// global close handlers
+document.addEventListener('click', () => hidePicker());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePicker(); });
 
 // ── RECENT SCANS THIS SESSION ─────────────────────
 const sessionScans = [];

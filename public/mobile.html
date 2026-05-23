@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Mobile Scan — GADA</title>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    html, body { min-height: 100%; }
+    body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+    .mobilePage { display: flex; flex-direction: column; min-height: 100vh; }
+    .mobileHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 12px; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+    .mobileHeader a, .mobileHeader button { color: var(--text); background: transparent; border: none; font: inherit; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; cursor: pointer; }
+    .mobileHeader .backIcon { font-size: 22px; line-height: 0; }
+    .mobileHeader .userChip { gap: 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); }
+    .mobileHeader .userAvatar { width: 32px; height: 32px; border-radius: 50%; background: var(--green); display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 700; }
+    .mobileHeader .userInfo { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+    .mobileHeader .userName { font-size: 14px; font-weight: 600; }
+    .mobileHeader .userRole { font-size: 12px; color: var(--text-3); }
+    .mobileMain { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 16px; }
+    .pageIntro { display: flex; flex-direction: column; gap: 10px; }
+    .pageTitle { font-size: 28px; font-weight: 700; line-height: 1.05; }
+    .pageSub { font-size: 14px; color: var(--text-3); max-width: 100%; }
+    .switchHint { font-size: 13px; color: var(--green-text); }
+    .tagSection, .locationSection, .actionSection, .recordSection, .recentSection { display: flex; flex-direction: column; gap: 12px; }
+    .tagLabel { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+    .tagInputRow { display: grid; grid-template-columns: 1fr 68px; gap: 10px; align-items: stretch; }
+    .tagInputRow input { width: 100%; min-height: 110px; border-radius: 24px; border: 1px solid var(--border); padding: 18px 18px 18px 18px; font-size: 28px; font-weight: 600; letter-spacing: 0.02em; background: var(--surface); color: var(--text); outline: none; }
+    .tagInputRow input:focus { border-color: var(--green); box-shadow: 0 0 0 4px rgba(61,110,78,0.08); }
+    .cameraBtn { border-radius: 20px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 18px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0 10px; min-height: 110px; }
+    .cameraBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .tagHint { font-size: 12px; color: var(--text-3); min-height: 18px; }
+    .pillGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .pillButton { border: 1px solid var(--border); border-radius: 999px; padding: 16px 18px; font-size: 16px; font-weight: 600; background: var(--surface); color: var(--text); text-align: center; cursor: pointer; transition: transform 0.15s, border-color 0.15s, background 0.15s; }
+    .pillButton:active { transform: scale(0.98); }
+    .pillButton.active { background: var(--green); color: #fff; border-color: transparent; }
+    .actionGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .actionButton { border: 1px solid var(--border); border-radius: 18px; padding: 18px 12px; font-size: 14px; font-weight: 700; background: var(--surface); color: var(--text); text-align: center; cursor: pointer; min-height: 70px; display: flex; align-items: center; justify-content: center; transition: transform 0.15s, background 0.15s, border-color 0.15s; }
+    .actionButton.active { background: var(--green); color: #fff; border-color: transparent; }
+    .actionButton:active { transform: scale(0.98); }
+    .recordButton { width: 100%; border: none; border-radius: 20px; padding: 18px; font-size: 17px; font-weight: 700; background: var(--green); color: #fff; cursor: pointer; box-shadow: 0 12px 24px rgba(61,110,78,0.18); transition: transform 0.15s, opacity 0.15s; }
+    .recordButton:active { transform: scale(0.98); }
+    .recordButton:disabled { opacity: 0.6; cursor: not-allowed; }
+    .statusMessage { min-height: 22px; font-size: 13px; font-weight: 600; color: var(--text); }
+    .statusMessage.error { color: var(--red); }
+    .statusMessage.success { color: var(--green); }
+    .recentSection h2 { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--text-3); text-transform: uppercase; }
+    .recentList { display: grid; gap: 10px; }
+    .recentItem { padding: 14px 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+    .recentTag { font-size: 15px; font-weight: 700; color: var(--text); }
+    .recentMeta { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-3); text-align: right; }
+    .scannerOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; align-items: center; justify-content: center; z-index: 999; padding: 16px; }
+    .scannerOverlay.show { display: flex; }
+    .scannerFrame { width: 100%; max-width: 420px; background: rgba(17,20,16,0.95); border-radius: 24px; overflow: hidden; display: grid; gap: 12px; padding: 14px; }
+    .scannerVideo { width: 100%; aspect-ratio: 4 / 5; background: #000; border-radius: 18px; object-fit: cover; }
+    .scannerHint { color: #fff; font-size: 13px; line-height: 1.4; }
+    .scannerActions { display: flex; gap: 10px; }
+    .scannerActions button { flex: 1; min-height: 50px; border-radius: 16px; border: none; background: #fff; color: #111; font-size: 14px; font-weight: 700; cursor: pointer; }
+    .flash-success { animation: flashSuccess 0.3s ease; }
+    .flash-error { animation: flashError 0.3s ease; }
+    @keyframes flashSuccess { from { background: var(--bg); } 50% { background: rgba(77,145,100,0.14); } to { background: var(--bg); }}
+    @keyframes flashError { from { background: var(--bg); } 50% { background: rgba(181,48,48,0.14); } to { background: var(--bg); }}
+    @media (max-width: 520px) {
+      .tagInputRow { grid-template-columns: 1fr 60px; }
+      .tagInputRow input { min-height: 100px; font-size: 24px; }
+      .cameraBtn { min-height: 100px; }
+      .actionButton { min-height: 62px; padding: 16px 10px; font-size: 13px; }
+      .pillGrid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (localStorage.getItem('gadaDark') === '1') document.body.classList.add('dark');
+    });
+  </script>
+</head>
+<body class="mobilePage">
+  <div class="mobilePage">
+    <header class="mobileHeader">
+      <a href="/scan.html" class="backLink" aria-label="Back to scan page"><span class="backIcon">←</span><span>Back</span></a>
+      <div class="userChip" id="mobileUserChip" aria-label="Signed in user">
+        <div class="userAvatar" id="mobileUserAvatar">—</div>
+        <div class="userInfo"><span class="userName" id="mobileUserName">Loading…</span><span class="userRole" id="mobileUserRole"></span></div>
+      </div>
+    </header>
+    <main class="mobileMain">
+      <section class="pageIntro">
+        <div class="pageTitle">Record movement</div>
+        <div class="pageSub">Fast walk-around scanning for staff.</div>
+      </section>
+
+      <section class="tagSection">
+        <div class="tagLabel">Asset tag</div>
+        <div class="tagInputRow">
+          <input id="mobileTag" type="text" inputmode="text" autocomplete="off" placeholder="Scan or type tag" aria-label="Asset tag" />
+          <button id="cameraBtn" type="button" class="cameraBtn">📷</button>
+        </div>
+        <div id="cameraHint" class="tagHint">Loading camera support…</div>
+      </section>
+
+      <section class="locationSection">
+        <div class="tagLabel">Location</div>
+        <div id="locationGrid" class="pillGrid"></div>
+      </section>
+
+      <section class="actionSection">
+        <div class="tagLabel">Action</div>
+        <div class="actionGrid" id="actionGrid"></div>
+      </section>
+
+      <section class="recordSection">
+        <button id="recordBtn" class="recordButton" type="button">Record</button>
+        <div id="statusMessage" class="statusMessage"></div>
+      </section>
+
+      <section class="recentSection">
+        <h2>Recent scans</h2>
+        <div id="recentList" class="recentList"></div>
+      </section>
+    </main>
+
+    <div id="scannerOverlay" class="scannerOverlay" aria-hidden="true">
+      <div class="scannerFrame">
+        <video id="scannerVideo" class="scannerVideo" playsinline muted></video>
+        <div class="scannerHint">Point the camera at a barcode.</div>
+        <div class="scannerActions">
+          <button id="scannerCancel" type="button">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const RECENT_LIMIT = 5;
+    const IDLE_MS = 30 * 60 * 1000;
+    const actionOptions = [
+      { value: 'TRANSFERRED', label: 'Transfer' },
+      { value: 'SCANNED_IN', label: 'Check In' },
+      { value: 'SCANNED_OUT', label: 'Check Out' }
+    ];
+    let locations = [];
+    let selectedLocation = '';
+    let selectedAction = 'TRANSFERRED';
+    let recentScans = JSON.parse(sessionStorage.getItem('mobileRecentScans') || '[]');
+    let idleTimer = null;
+    let scannerStream = null;
+    let scanning = false;
+    let detector = null;
+
+    const body = document.body;
+    const tagInput = document.getElementById('mobileTag');
+    const cameraBtn = document.getElementById('cameraBtn');
+    const cameraHint = document.getElementById('cameraHint');
+    const locationGrid = document.getElementById('locationGrid');
+    const actionGrid = document.getElementById('actionGrid');
+    const recordBtn = document.getElementById('recordBtn');
+    const statusMessage = document.getElementById('statusMessage');
+    const recentList = document.getElementById('recentList');
+    const userAvatar = document.getElementById('mobileUserAvatar');
+    const userName = document.getElementById('mobileUserName');
+    const userRole = document.getElementById('mobileUserRole');
+    const scannerOverlay = document.getElementById('scannerOverlay');
+    const scannerVideo = document.getElementById('scannerVideo');
+    const scannerCancel = document.getElementById('scannerCancel');
+
+    function saveRecent() {
+      sessionStorage.setItem('mobileRecentScans', JSON.stringify(recentScans.slice(0, RECENT_LIMIT)));
+    }
+
+    function renderRecent() {
+      if (!recentScans.length) {
+        recentList.innerHTML = '<div class="recentItem"><div class="recentTag">No scans yet</div></div>';
+        return;
+      }
+      recentList.innerHTML = recentScans.slice(0, RECENT_LIMIT).map(item => `
+        <div class="recentItem">
+          <div>
+            <div class="recentTag">${item.tag}</div>
+            <div class="recentMeta">${item.actionLabel} · ${item.location}</div>
+          </div>
+          <div class="recentMeta">${item.time}</div>
+        </div>
+      `).join('');
+    }
+
+    function setStatus(text, type = 'ok') {
+      statusMessage.textContent = text || '';
+      statusMessage.className = 'statusMessage' + (type === 'error' ? ' error' : type === 'success' ? ' success' : '');
+      if (type === 'success') flashState('success');
+      if (type === 'error') flashState('error');
+    }
+
+    function flashState(type) {
+      body.classList.add(type === 'success' ? 'flash-success' : 'flash-error');
+      window.setTimeout(() => body.classList.remove(type === 'success' ? 'flash-success' : 'flash-error'), 320);
+    }
+
+    function selectLocation(value) {
+      selectedLocation = value;
+      Array.from(locationGrid.children).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === value);
+      });
+    }
+
+    function selectAction(value) {
+      selectedAction = value;
+      Array.from(actionGrid.children).forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === value);
+      });
+    }
+
+    function populateLocations() {
+      if (!locations.length) {
+        locationGrid.innerHTML = '<div class="pillButton" style="opacity:.6;cursor:default;">No locations configured</div>';
+        selectedLocation = '';
+        return;
+      }
+      locationGrid.innerHTML = locations.map(loc => `
+        <button type="button" class="pillButton" data-value="${loc}">${loc}</button>
+      `).join('');
+      Array.from(locationGrid.children).forEach(button => {
+        button.addEventListener('click', () => selectLocation(button.dataset.value));
+      });
+      selectLocation(locations[0]);
+    }
+
+    function populateActions() {
+      actionGrid.innerHTML = actionOptions.map(opt => `
+        <button type="button" class="actionButton" data-value="${opt.value}">${opt.label}</button>
+      `).join('');
+      Array.from(actionGrid.children).forEach(button => {
+        button.addEventListener('click', () => selectAction(button.dataset.value));
+      });
+      selectAction(selectedAction);
+    }
+
+    function resetIdleTimer() {
+      clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => {
+        fetch('/api/logout', { method: 'POST', credentials: 'include' }).finally(() => {
+          window.location.href = '/login.html';
+        });
+      }, IDLE_MS);
+    }
+
+    function addInteractionListeners() {
+      ['click','touchstart','keydown','input'].forEach(event => {
+        window.addEventListener(event, resetIdleTimer, { passive: true });
+      });
+    }
+
+    function showScannerOverlay() {
+      scannerOverlay.classList.add('show');
+      scannerOverlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideScannerOverlay() {
+      scannerOverlay.classList.remove('show');
+      scannerOverlay.setAttribute('aria-hidden', 'true');
+      if (scannerStream) {
+        scannerStream.getTracks().forEach(track => track.stop());
+        scannerStream = null;
+      }
+      scannerVideo.srcObject = null;
+      scanning = false;
+    }
+
+    async function scanFrame() {
+      if (!scanning || !detector) return;
+      try {
+        const results = await detector.detect(scannerVideo);
+        if (results.length) {
+          const code = results[0].rawValue;
+          hideScannerOverlay();
+          tagInput.value = code;
+          tagInput.focus();
+          setStatus('Tag scanned. Ready to record.', 'success');
+          return;
+        }
+      } catch (err) {
+        // ignore detection errors and continue
+      }
+      requestAnimationFrame(scanFrame);
+    }
+
+    async function startCameraScan() {
+      if (!detector) {
+        setStatus('Use a barcode scanner or type the tag.', 'error');
+        return;
+      }
+      cameraBtn.disabled = true;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        scannerStream = stream;
+        scannerVideo.srcObject = stream;
+        await scannerVideo.play();
+        scanning = true;
+        showScannerOverlay();
+        scanFrame();
+      } catch (err) {
+        setStatus('Camera not available. Use tag entry instead.', 'error');
+      } finally {
+        cameraBtn.disabled = false;
+      }
+    }
+
+    async function initBarcodeDetector() {
+      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        cameraHint.textContent = 'Use a barcode scanner or type the tag';
+        cameraBtn.disabled = true;
+        return;
+      }
+      try {
+        detector = new BarcodeDetector({ formats: ['code_128','ean_13','ean_8','upc_a','upc_e','qr_code'] });
+        cameraHint.textContent = 'Tap the camera icon to scan a barcode.';
+        cameraBtn.disabled = false;
+      } catch (err) {
+        cameraHint.textContent = 'Use a barcode scanner or type the tag';
+        cameraBtn.disabled = true;
+      }
+    }
+
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function recordScan() {
+      const tag = tagInput.value.trim();
+      if (!tag) { setStatus('Please enter or scan a tag.', 'error'); tagInput.focus(); return; }
+      if (!selectedLocation) { setStatus('Select a location first.', 'error'); return; }
+      recordBtn.disabled = true;
+      recordBtn.textContent = 'Recording…';
+      try {
+        const res = await fetch('/api/scan', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag, location: selectedLocation, action: selectedAction })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
+        if (!res.ok) throw new Error(data.error || 'Scan failed.');
+        const actionLabel = actionOptions.find(opt => opt.value === selectedAction)?.label || selectedAction;
+        recentScans.unshift({ tag, location: selectedLocation, actionLabel, time: formatTime(new Date()) });
+        recentScans = recentScans.slice(0, RECENT_LIMIT);
+        saveRecent();
+        renderRecent();
+        tagInput.value = '';
+        tagInput.focus();
+        setStatus('Scan recorded.', 'success');
+      } catch (err) {
+        setStatus(err.message || 'Could not record scan.', 'error');
+      } finally {
+        recordBtn.disabled = false;
+        recordBtn.textContent = 'Record';
+      }
+    }
+
+    async function loadUser() {
+      try {
+        const res = await fetch('/api/me', { credentials: 'include' });
+        const data = await res.json();
+        if (!data.user) { window.location.href = '/login.html'; return; }
+        const user = data.user;
+        const initials = (user.name || user.id || '?').split(/\s+/).map(p => p[0]).join('').toUpperCase().slice(0, 2);
+        userAvatar.textContent = initials;
+        userName.textContent = user.name || user.id || 'Staff';
+        userRole.textContent = [user.role, user.department].filter(Boolean).join(' · ');
+        if (user.access === 'viewer') {
+          recordBtn.disabled = true;
+          setStatus('Viewer accounts cannot record scans.', 'error');
+        }
+      } catch {
+        window.location.href = '/login.html';
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const data = await fetch('/api/config', { cache: 'no-store' }).then(res => res.json());
+        locations = Array.isArray(data.locations) ? data.locations : [];
+      } catch {
+        locations = [];
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await loadUser();
+      await loadConfig();
+      populateLocations();
+      populateActions();
+      renderRecent();
+      await initBarcodeDetector();
+      addInteractionListeners();
+      resetIdleTimer();
+      tagInput.focus();
+    });
+
+    cameraBtn.addEventListener('click', startCameraScan);
+    scannerCancel.addEventListener('click', hideScannerOverlay);
+    scannerOverlay.addEventListener('click', event => {
+      if (event.target === scannerOverlay) hideScannerOverlay();
+    });
+    recordBtn.addEventListener('click', recordScan);
+    tagInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') recordScan();
+    });
+  </script>
+</body>
+</html>

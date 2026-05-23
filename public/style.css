@@ -730,3 +730,65 @@ body.dark header { background: rgba(17,20,16,0.92); }
   border-color: #f0c0c0;
   color: var(--red);
 }
+
+/* ── ASSET POPOVER MENU ────────────────────── */
+.popoverMenu {
+  position: absolute;
+  z-index: 10050;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  padding: 6px;
+  display: none;
+  outline: none;
+}
+.popoverMenu .menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.popoverMenu .menuItem:hover,
+.popoverMenu .menuItem:focus {
+  background: var(--green-lite);
+}
+.popoverMenu .menuItem[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* ── ASSET PICKER ─────────────────────────── */
+.assetPicker {
+  position: absolute;
+  z-index: 10060;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  overflow: hidden;
+  display: none;
+}
+.assetPicker .assetItem {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; cursor: pointer; gap: 12px;
+  border-bottom: 1px solid var(--border);
+  background: transparent; color: var(--text);
+}
+.assetPicker .assetItem:last-child { border-bottom: none; }
+.assetPicker .assetItem:hover, .assetPicker .assetItem.highlight {
+  background: var(--green-lite);
+}
+.assetPicker .assetItemName {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 500;
+}
+.assetPicker .assetItemTag {
+  font-family: var(--mono); color: var(--text-3); font-size: 12px; flex-shrink: 0; margin-left: 8px;
+}
+

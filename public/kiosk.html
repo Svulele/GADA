@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>GADA Kiosk</title>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { height: 100%; margin: 0; }
+    body { background: #0d1208; color: #e8f3d8; font-family: Inter, sans-serif; overflow: hidden; }
+    * { box-sizing: border-box; }
+    a { color: inherit; text-decoration: none; }
+    .page { display: flex; flex-direction: column; height: 100vh; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 1.2rem 2rem; min-height: 7vh; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .brand { display: flex; align-items: center; gap: 0.8rem; }
+    .brandIcon { width: clamp(2.2rem, 3vw, 3rem); height: clamp(2.2rem, 3vw, 3rem); background: #4a7c45; border-radius: 1rem; display: grid; place-items: center; }
+    .brandIcon svg { width: 60%; height: 60%; fill: #f4f1ec; }
+    .brandLabel { font-size: clamp(1.2rem, 2vw, 1.8rem); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+    .facilityName { font-size: clamp(1.2rem, 2vw, 1.9rem); font-weight: 700; color: #d9e8b7; text-align: center; flex: 1; }
+    .clockPanel { display: flex; align-items: center; gap: 1rem; font-size: clamp(1rem, 1.8vw, 1.5rem); font-weight: 600; }
+    .dot { width: clamp(0.8rem, 1.5vw, 1.2rem); height: clamp(0.8rem, 1.5vw, 1.2rem); border-radius: 50%; background: #8ad16a; box-shadow: 0 0 0 0 rgba(138,209,106,0.5); animation: pulse 1.6s infinite ease-in-out; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(138,209,106,0.45); } 70% { box-shadow: 0 0 0 20px rgba(138,209,106,0); } 100% { box-shadow: 0 0 0 0 rgba(138,209,106,0); } }
+    .main { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; padding: 1rem 1.2rem 0; overflow: hidden; }
+    .locCard { background: rgba(17, 22, 12, 0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 1.4rem; padding: 1.2rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 14rem; }
+    .locCard.empty { opacity: 0.42; }
+    .locCard.alert { border-color: #d04444; box-shadow: 0 0 0 1px rgba(208,68,68,0.2); }
+    .locTop { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
+    .locIcon { width: clamp(2.2rem, 3vw, 2.8rem); height: clamp(2.2rem, 3vw, 2.8rem); display: grid; place-items: center; background: rgba(138,209,106,0.16); border-radius: 1rem; color: #8ad16a; }
+    .locName { font-size: clamp(1.4rem, 2.4vw, 2rem); font-weight: 800; line-height: 1; margin-top: 1rem; }
+    .locMeta { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; font-size: clamp(1rem, 1.8vw, 1.4rem); color: #c8daaa; }
+    .statusBadge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border-radius: 999px; font-size: clamp(0.85rem, 1.3vw, 1rem); background: rgba(208,68,68,0.14); color: #f6b2b2; }
+    .assetList { margin-top: 1.2rem; display: grid; gap: 0.7rem; overflow: hidden; }
+    .assetName { font-size: clamp(1.1rem, 1.8vw, 1.45rem); font-weight: 700; line-height: 1.1; color: #f2f5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .assetName.secondary { font-size: clamp(0.95rem, 1.4vw, 1.2rem); color: #b9c49e; }
+    .ticker { min-height: 6.5rem; background: rgba(14, 18, 11, 0.9); border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; overflow: hidden; position: relative; padding: 0 1.2rem; }
+    .tickerTrack { display: inline-flex; gap: 3rem; white-space: nowrap; animation: scrollText 24s linear infinite; }
+    .tickerItem { display: inline-flex; flex-direction: column; gap: 0.3rem; color: #d7e4bb; font-size: clamp(0.95rem, 1.4vw, 1.2rem); }
+    .tickerLabel { font-size: clamp(1.1rem, 1.8vw, 1.4rem); font-weight: 700; }
+    .hint { position: absolute; right: 1.2rem; bottom: 0.9rem; font-size: clamp(0.75rem, 1vw, 0.95rem); color: rgba(255,255,255,0.55); }
+    @keyframes scrollText { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    .warningIcon { width: 1.1em; height: 1.1em; display: inline-block; border-radius: 50%; background: #d04444; color: #fff; font-size: 0.9em; line-height: 1; text-align: center; }
+    @media (max-width: 900px) {
+      .topbar { flex-wrap: wrap; align-items: flex-start; padding: 1rem; }
+      .facilityName { order: 3; width: 100%; text-align: left; margin-top: 0.5rem; }
+      .main { padding-top: 0.5rem; }
+      .ticker { min-height: 8rem; }
+    }
+    @media (max-width: 620px) {
+      .main { grid-template-columns: 1fr; }
+      .locCard { min-height: 12rem; }
+    }
+  </style>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      if (localStorage.getItem('gadaDark') === '1') document.body.classList.add('dark');
+    });
+  </script>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/></svg>
+        </div>
+        <div class="brandLabel">GADA</div>
+      </div>
+      <div class="facilityName">GADA Ward Dashboard</div>
+      <div class="clockPanel"><span id="liveClock">00:00:00</span><span class="dot" aria-hidden="true"></span></div>
+    </header>
+    <main class="main" id="locationGrid"></main>
+    <footer class="ticker">
+      <div class="tickerTrack" id="tickerTrack"></div>
+      <div class="hint">Press F11 for full screen</div>
+    </footer>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const locationGrid = document.getElementById('locationGrid');
+    const tickerTrack = document.getElementById('tickerTrack');
+    const liveClock = document.getElementById('liveClock');
+    let kioskData = { locations: [], assets: [] };
+    let socket = null;
+
+    function formatTime(date) {
+      return date.toLocaleTimeString([], { hour12: false });
+    }
+
+    function updateClock() {
+      liveClock.textContent = formatTime(new Date());
+    }
+
+    function safeName(name) {
+      return String(name || 'Unknown');
+    }
+
+    function locationIcon(name) {
+      const n = String(name || '').toLowerCase();
+      if (n.includes('ward')) return '🏥';
+      if (n.includes('lab')) return '🧪';
+      if (n.includes('pharm')) return '💊';
+      if (n.includes('triage')) return '🚑';
+      if (n.includes('radio')) return '📡';
+      if (n.includes('reception') || n.includes('recep')) return '🏢';
+      return '📍';
+    }
+
+    function renderLocations() {
+      const assetsByLocation = {};
+      kioskData.locations.forEach(loc => { assetsByLocation[loc] = []; });
+      kioskData.assets.forEach(asset => {
+        const loc = asset.last_location || 'Unknown';
+        if (!assetsByLocation[loc]) assetsByLocation[loc] = [];
+        assetsByLocation[loc].push(asset);
+      });
+
+      locationGrid.innerHTML = kioskData.locations.map(loc => {
+        const assets = assetsByLocation[loc] || [];
+        const missing = assets.some(a => a.status === 'missing');
+        const count = assets.length;
+        const assetNames = assets.slice(0, 4).map(a => `<div class="assetName">${safeName(a.name)}</div>`).join('');
+        return `
+          <article class="locCard ${count === 0 ? 'empty' : ''} ${missing ? 'alert' : ''}">
+            <div class="locTop">
+              <div>
+                <div class="locIcon">${locationIcon(loc)}</div>
+              </div>
+              <div class="locMeta">${count} asset${count === 1 ? '' : 's'}</div>
+            </div>
+            <div class="locName">${safeName(loc)}</div>
+            <div class="assetList">
+              ${assetNames || '<div class="assetName secondary">No assets</div>'}
+            </div>
+            ${missing ? `<div class="statusBadge"><span class="warningIcon">!</span> Missing asset</div>` : ''}
+          </article>`;
+      }).join('');
+    }
+
+    function renderTicker() {
+      const events = kioskData.assets
+        .filter(a => a.last_location)
+        .sort((a,b) => String(a.tag).localeCompare(String(b.tag)))
+        .slice(0, 5)
+        .map(a => ({
+          tag: a.tag,
+          name: a.name,
+          location: a.last_location,
+          status: a.status
+        }));
+      if (!events.length) {
+        tickerTrack.innerHTML = '<div class="tickerItem"><span class="tickerLabel">No recent activity</span></div>';
+        return;
+      }
+      const items = events.map(event => `
+        <div class="tickerItem">
+          <span class="tickerLabel">${safeName(event.name)}</span>
+          <span>${event.tag} • ${safeName(event.location)}${event.status === 'missing' ? ' • MISSING' : ''}</span>
+        </div>`).join('');
+      tickerTrack.innerHTML = items + items;
+    }
+
+    async function loadKiosk() {
+      try {
+        const data = await fetch('/api/kiosk').then(r => r.json());
+        kioskData = data;
+        renderLocations();
+        renderTicker();
+      } catch (err) {
+        console.error('Kiosk load failed', err);
+      }
+    }
+
+    function initSocket() {
+      if (!window.io) return;
+      try {
+        socket = io();
+        socket.on('scan:new', () => loadKiosk());
+      } catch (err) {
+        console.warn('WebSocket unavailable', err);
+      }
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    loadKiosk();
+    setInterval(loadKiosk, 30000);
+    initSocket();
+  </script>
+</body>
+</html>
