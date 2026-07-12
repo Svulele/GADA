@@ -1,4 +1,4 @@
-# GADA — Asset Tracking System
+# GADA
 
 GADA is a secure, real-time chain-of-custody system for tracking physical assets across a facility. Built for medical environments where accountability, auditability, and access control matter.
 
