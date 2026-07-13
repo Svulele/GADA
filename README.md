@@ -270,6 +270,47 @@ server {
 
 ---
 
+## Postgres / Supabase Deployment
+
+1. Create a Supabase project and copy the `DATABASE_URL` connection string.
+2. Add `DATABASE_URL` and `SESSION_SECRET` to your `.env` or Vercel environment variables.
+3. Deploy to Vercel using the `npm start` command.
+4. Use `npm run migrate:sqlite-to-postgres` locally with `DATABASE_URL` set to migrate `gada.db` data into Supabase.
+
+### Recommended environment variables
+
+```env
+PORT=3000
+SESSION_SECRET=replace-this-with-a-long-random-string
+NODE_ENV=production
+DATABASE_URL=postgres://user:password@host:5432/database
+# Optional: use CONFIG_JSON_PATH or CONFIG_JSON to provide config without committing config.json
+# CONFIG_JSON_PATH=./config.json
+# CONFIG_JSON={"locations":["Reception"],"users":[{"id":"admin","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"0000"}]}
+```
+
+### Config deployment notes
+
+- By default the app reads `config.json` from the project root.
+- In production you can instead set `CONFIG_JSON_PATH` to a writable config path.
+- For env-based config, set `CONFIG_JSON` to a JSON string containing `locations` and `users`.
+- If `CONFIG_JSON` is present, it is used instead of `config.json`.
+
+### Quick migration
+
+```bash
+export DATABASE_URL="postgres://..."
+npm run migrate:sqlite-to-postgres
+```
+
+### Vercel deploy notes
+
+- Ensure `SESSION_SECRET` and `DATABASE_URL` are set in Vercel dashboard.
+- `config.json` must be provided separately on the server or committed safely outside public assets.
+- In production, the app will use Postgres when `DATABASE_URL` is present.
+
+---
+
 ## Roadmap / Known Missing Features
 
 See `CONTRIBUTING.md` for a full breakdown of planned features and where to implement each one.

@@ -8,6 +8,7 @@ const session      = require("express-session");
 const rateLimit    = require("express-rate-limit");
 const { Server }   = require("socket.io");
 const db           = require("./db");
+const isPostgres   = db.isPostgres;
 
 const app    = express();
 const server = http.createServer(app);
@@ -15,17 +16,35 @@ const io     = new Server(server, { cors: { origin: false } });
 
 // ── config ────────────────────────────────────────────────
 function loadConfig() {
+  if (process.env.CONFIG_JSON) {
+    try {
+      return JSON.parse(process.env.CONFIG_JSON);
+    } catch (err) {
+      console.error('Failed to parse CONFIG_JSON:', err.message);
+      return { locations: [], users: [] };
+    }
+  }
+
+  const configPath = process.env.CONFIG_JSON_PATH
+    ? path.resolve(process.env.CONFIG_JSON_PATH)
+    : path.join(__dirname, "config.json");
+
   try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
-  } catch { return { locations: [], users: [] }; }
+    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch (err) {
+    if (process.env.CONFIG_JSON_PATH) {
+      console.error('Failed to load config from CONFIG_JSON_PATH:', configPath, err.message);
+    }
+    return { locations: [], users: [] };
+  }
 }
 
 function saveConfig(cfg) {
-  fs.writeFileSync(
-    path.join(__dirname, "config.json"),
-    JSON.stringify(cfg, null, 2),
-    "utf8"
-  );
+  const configPath = process.env.CONFIG_JSON_PATH
+    ? path.resolve(process.env.CONFIG_JSON_PATH)
+    : path.join(__dirname, "config.json");
+
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf8");
 }
 
 function findUser(id, cfg) {
@@ -113,15 +132,15 @@ app.get("/api/config", (req, res) => {
   });
 });
 
-app.get("/api/kiosk", (req, res) => {
+app.get("/api/kiosk", async (req, res) => {
   const cfg = loadConfig();
-  const assets = db.prepare(`
+  const assets = await db.prepare(`
     SELECT a.tag, a.name, a.category, a.status,
       (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
       (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen,
       (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by
     FROM assets a
-    ORDER BY a.tag COLLATE NOCASE
+    ORDER BY ${isPostgres ? "LOWER(a.tag)" : "a.tag COLLATE NOCASE"}
   `).all();
   res.json({ locations: cfg.locations || [], assets });
 });
@@ -155,8 +174,8 @@ app.get("/api/me", (req, res) => {
 });
 
 // ── asset routes ───────────────────────────────────────────
-app.get("/api/assets", requireAuth, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/assets", requireAuth, async (req, res) => {
+  const rows = await db.prepare(`
     SELECT a.*,
       (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
       (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by,
@@ -167,17 +186,35 @@ app.get("/api/assets", requireAuth, (req, res) => {
   res.json(rows);
 });
 
-app.get("/api/assets/labels", requireAdmin, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/assets/labels", requireAdmin, async (req, res) => {
+  const rows = await db.prepare(`
     SELECT tag, name, category
     FROM assets
-    ORDER BY name COLLATE NOCASE, tag COLLATE NOCASE
+    ORDER BY ${isPostgres ? "LOWER(name), LOWER(tag)" : "name COLLATE NOCASE, tag COLLATE NOCASE"}
   `).all();
   res.json(rows);
 });
 
-app.get("/api/alerts", requireAuth, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/alerts", requireAuth, async (req, res) => {
+  const sql = isPostgres ? `
+    WITH asset_last_seen AS (
+      SELECT a.tag, a.name, a.status,
+        (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
+        (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
+      FROM assets a
+    )
+    SELECT tag, name, last_seen, last_location, status,
+      CASE
+        WHEN last_seen IS NULL THEN NULL
+        ELSE ROUND(EXTRACT(EPOCH FROM NOW() - last_seen) / 3600.0, 1)
+      END AS hours_since
+    FROM asset_last_seen
+    WHERE status = 'missing'
+      OR (last_seen IS NOT NULL AND last_seen < NOW() - INTERVAL '24 hours')
+    ORDER BY
+      CASE WHEN status = 'missing' THEN 0 ELSE 1 END,
+      hours_since DESC
+  ` : `
     WITH asset_last_seen AS (
       SELECT a.tag, a.name, a.status,
         (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
@@ -195,27 +232,30 @@ app.get("/api/alerts", requireAuth, (req, res) => {
     ORDER BY
       CASE WHEN status = 'missing' THEN 0 ELSE 1 END,
       hours_since DESC
-  `).all();
+  `;
+  const rows = await db.prepare(sql).all();
   res.json(rows);
 });
 
-app.get("/api/assets/:tag", requireAuth, (req, res) => {
-  const asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
+app.get("/api/assets/:tag", requireAuth, async (req, res) => {
+  const asset = await db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
-  const events = db.prepare("SELECT * FROM events WHERE asset_id = ? ORDER BY created_at DESC").all(asset.asset_id);
+  const events = await db.prepare("SELECT * FROM events WHERE asset_id = ? ORDER BY created_at DESC").all(asset.asset_id);
   res.json({ asset, events });
 });
 
 // create asset — admin only
-app.post("/api/assets", requireAdmin, (req, res) => {
+app.post("/api/assets", requireAdmin, async (req, res) => {
   const { tag, name, category } = req.body;
   const status = req.body.status || "available";
   if (!tag || !name) return res.status(400).json({ error: "tag and name required" });
   if (!VALID_ASSET_STATUSES.has(status)) return res.status(400).json({ error: "Invalid asset status" });
   try {
-    const info = db.prepare("INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)")
-      .run(tag, name, category || null, status);
-    const asset = { asset_id: info.lastInsertRowid, tag, name, category: category || null, status };
+    const sql = isPostgres
+      ? "INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?) RETURNING asset_id"
+      : "INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)";
+    const info = await db.prepare(sql).run(tag, name, category || null, status);
+    const asset = { asset_id: info.lastInsertRowid || info.rows?.[0]?.asset_id, tag, name, category: category || null, status };
     io.emit("asset:created", asset);
     res.json(asset);
   } catch (e) {
@@ -223,45 +263,45 @@ app.post("/api/assets", requireAdmin, (req, res) => {
   }
 });
 
-app.post("/api/assets/import", requireAdmin, (req, res) => {
+app.post("/api/assets/import", requireAdmin, async (req, res) => {
   const assets = Array.isArray(req.body.assets) ? req.body.assets : null;
   if (!assets) return res.status(400).json({ error: "assets array required" });
 
-  const insert = db.prepare("INSERT OR IGNORE INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)");
+  const insertSql = isPostgres
+    ? "INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?) ON CONFLICT (tag) DO NOTHING"
+    : "INSERT OR IGNORE INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)";
+  const insert = db.prepare(insertSql);
   let imported = 0;
   let skipped = 0;
 
-  const runImport = db.transaction(rows => {
-    for (const row of rows) {
-      const tag = String(row.tag || "").trim();
-      const name = String(row.name || "").trim();
-      const category = String(row.category || "").trim();
-      const status = String(row.status || "available").trim() || "available";
+  for (const row of assets) {
+    const tag = String(row.tag || "").trim();
+    const name = String(row.name || "").trim();
+    const category = String(row.category || "").trim();
+    const status = String(row.status || "available").trim() || "available";
 
-      if (!tag || !name || !VALID_ASSET_STATUSES.has(status)) {
-        skipped++;
-        continue;
-      }
-
-      const info = insert.run(tag, name, category || null, status);
-      if (info.changes) imported++;
-      else skipped++;
+    if (!tag || !name || !VALID_ASSET_STATUSES.has(status)) {
+      skipped++;
+      continue;
     }
-  });
 
-  runImport(assets);
+    const info = await insert.run(tag, name, category || null, status);
+    if ((info.changes ?? 0) > 0) imported++;
+    else skipped++;
+  }
+
   if (imported > 0) io.emit("asset:created", { bulk: true, imported });
   res.json({ imported, skipped });
 });
 
 // update asset
-app.put("/api/assets/:tag", requireAdmin, (req, res) => {
+app.put("/api/assets/:tag", requireAdmin, async (req, res) => {
   const { name, category, status } = req.body;
   const valid = ['available','in-use','maintenance','missing'];
   if (status && !valid.includes(status))
     return res.status(400).json({ error: "Invalid status" });
 
-  db.prepare("UPDATE assets SET name=COALESCE(?,name), category=COALESCE(?,category), status=COALESCE(?,status) WHERE tag=?")
+  await db.prepare("UPDATE assets SET name=COALESCE(?,name), category=COALESCE(?,category), status=COALESCE(?,status) WHERE tag=?")
     .run(name || null, category || null, status || null, req.params.tag);
 
   io.emit("asset:updated", { tag: req.params.tag });
@@ -269,17 +309,17 @@ app.put("/api/assets/:tag", requireAdmin, (req, res) => {
 });
 
 // delete asset — admin only
-app.delete("/api/assets/:tag", requireAdmin, (req, res) => {
-  const asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
+app.delete("/api/assets/:tag", requireAdmin, async (req, res) => {
+  const asset = await db.prepare("SELECT * FROM assets WHERE tag = ?").get(req.params.tag);
   if (!asset) return res.status(404).json({ error: "Asset not found" });
-  db.prepare("DELETE FROM events WHERE asset_id = ?").run(asset.asset_id);
-  db.prepare("DELETE FROM assets WHERE asset_id = ?").run(asset.asset_id);
+  await db.prepare("DELETE FROM events WHERE asset_id = ?").run(asset.asset_id);
+  await db.prepare("DELETE FROM assets WHERE asset_id = ?").run(asset.asset_id);
   io.emit("asset:deleted", { tag: req.params.tag });
   res.json({ ok: true });
 });
 
 // ── scan route ─────────────────────────────────────────────
-app.post("/api/scan", requireStaff, (req, res) => {
+app.post("/api/scan", requireStaff, async (req, res) => {
   const { tag, action, location, notes } = req.body;
   if (!tag || !action || !location) return res.status(400).json({ error: "tag, action, location required" });
 
@@ -287,13 +327,25 @@ app.post("/api/scan", requireStaff, (req, res) => {
   if (cfg.locations.length && !cfg.locations.includes(location))
     return res.status(400).json({ error: "Invalid location" });
 
-  let asset = db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
+  let asset = await db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
   if (!asset) {
-    const info = db.prepare("INSERT INTO assets (tag, name) VALUES (?, ?)").run(tag, `Unknown Asset (${tag})`);
-    asset = { asset_id: info.lastInsertRowid, tag, name: `Unknown Asset (${tag})`, category: null, status: "available" };
+    const insertAssetSql = isPostgres
+      ? "INSERT INTO assets (tag, name) VALUES (?, ?) RETURNING asset_id"
+      : "INSERT INTO assets (tag, name) VALUES (?, ?)";
+    const info = await db.prepare(insertAssetSql).run(tag, `Unknown Asset (${tag})`);
+    asset = {
+      asset_id: info.lastInsertRowid || info.rows?.[0]?.asset_id,
+      tag,
+      name: `Unknown Asset (${tag})`,
+      category: null,
+      status: "available"
+    };
   }
 
-  const eventInfo = db.prepare("INSERT INTO events (asset_id, action, location, scanned_by, notes) VALUES (?, ?, ?, ?, ?)")
+  const eventSql = isPostgres
+    ? "INSERT INTO events (asset_id, action, location, scanned_by, notes) VALUES (?, ?, ?, ?, ?) RETURNING event_id"
+    : "INSERT INTO events (asset_id, action, location, scanned_by, notes) VALUES (?, ?, ?, ?, ?)";
+  const eventInfo = await db.prepare(eventSql)
     .run(asset.asset_id, action, location, req.session.userId, notes || null);
 
   const payload = { tag: asset.tag, name: asset.name, action, location, scanned_by: req.session.userId, at: new Date().toISOString() };
@@ -303,19 +355,19 @@ app.post("/api/scan", requireStaff, (req, res) => {
 });
 
 // ── undo scan — staff+ ────────────────────────────
-app.delete("/api/scan/undo/:eventId", requireStaff, (req, res) => {
+app.delete("/api/scan/undo/:eventId", requireStaff, async (req, res) => {
   const eventId = parseInt(req.params.eventId, 10);
   if (!eventId) return res.status(400).json({ error: "Invalid event ID" });
 
-  const event = db.prepare("SELECT * FROM events WHERE event_id = ?").get(eventId);
+  const event = await db.prepare("SELECT * FROM events WHERE event_id = ?").get(eventId);
   if (!event) return res.status(404).json({ error: "Scan event not found" });
 
   // only the person who scanned can undo, within 30 seconds
-  const age = Date.now() - new Date(event.created_at.replace(" ","T")+"Z").getTime();
+  const age = Date.now() - new Date(event.created_at).getTime();
   if (age > 30000) return res.status(400).json({ error: "Undo window has expired (30s)" });
   if (event.scanned_by !== req.session.userId) return res.status(403).json({ error: "You can only undo your own scans" });
 
-  db.prepare("DELETE FROM events WHERE event_id = ?").run(eventId);
+  await db.prepare("DELETE FROM events WHERE event_id = ?").run(eventId);
 
   // emit live update
   io.emit("scan:undone", { tag: event.asset_id });
@@ -323,8 +375,8 @@ app.delete("/api/scan/undo/:eventId", requireStaff, (req, res) => {
 });
 
 // ── audit log viewer — admin only ────────────────
-app.get("/api/audit/log", requireAdmin, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/audit/log", requireAdmin, async (req, res) => {
+  const rows = await db.prepare(`
     SELECT
       a.tag, a.name, a.category,
       e.event_id, e.action, e.location, e.scanned_by, e.notes, e.created_at
@@ -337,8 +389,8 @@ app.get("/api/audit/log", requireAdmin, (req, res) => {
 });
 
 // ── audit export — admin only ─────────────────────────────
-app.get("/api/audit/export", requireAdmin, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/audit/export", requireAdmin, async (req, res) => {
+  const rows = await db.prepare(`
     SELECT
       a.tag, a.name, a.category,
       e.action, e.location, e.scanned_by, e.notes, e.created_at
@@ -358,7 +410,7 @@ app.get("/api/audit/export", requireAdmin, (req, res) => {
   res.send(csv);
 });
 
-app.get("/api/reports/shift", requireAdmin, (req, res) => {
+app.get("/api/reports/shift", requireAdmin, async (req, res) => {
   const { from, to, operator } = req.query;
   if (!from || !to) return res.status(400).json({ error: "from and to required" });
   const fromDate = new Date(from);
@@ -369,7 +421,7 @@ app.get("/api/reports/shift", requireAdmin, (req, res) => {
 
   const fromTs = fromDate.toISOString().slice(0, 19).replace('T', ' ');
   const toTs = toDate.toISOString().slice(0, 19).replace('T', ' ');
-  const rows = db.prepare(`
+  const rows = await db.prepare(`
     SELECT a.tag, a.name, a.category, e.action, e.location, e.scanned_by, e.notes, e.created_at
     FROM events e
     JOIN assets a ON a.asset_id = e.asset_id
@@ -438,8 +490,8 @@ app.get("/api/users", requireAdmin, (req, res) => {
   res.json(safe);
 });
 
-app.get("/api/users/:id/activity", requireAdmin, (req, res) => {
-  const rows = db.prepare(`
+app.get("/api/users/:id/activity", requireAdmin, async (req, res) => {
+  const rows = await db.prepare(`
     SELECT
       e.event_id, e.action, e.location, e.scanned_by, e.notes, e.created_at,
       a.name AS asset_name, a.tag
@@ -452,7 +504,7 @@ app.get("/api/users/:id/activity", requireAdmin, (req, res) => {
   res.json(rows);
 });
 
-app.post("/api/users", requireAdmin, (req, res) => {
+app.post("/api/users", requireAdmin, async (req, res) => {
   const { id, name, role, department, access, pin } = req.body;
   if (!id || !name || !pin) return res.status(400).json({ error: "id, name and pin required" });
   if (pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
@@ -495,4 +547,20 @@ io.on("connection", socket => {
 
 // ── start ──────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`\n🏥 GADA running → http://localhost:${PORT}\n`));
+server.on("error", err => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`FATAL: Port ${PORT} is already in use.`);
+  } else {
+    console.error("FATAL: Server failed to start:", err.message);
+  }
+  process.exit(1);
+});
+
+db.ready
+  .then(() => {
+    server.listen(PORT, () => console.log(`\n🏥 GADA running → http://localhost:${PORT}\n`));
+  })
+  .catch(err => {
+    console.error("FATAL: Database initialization failed:", err.message);
+    process.exit(1);
+  });

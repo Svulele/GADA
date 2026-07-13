@@ -1,0 +1,30 @@
+# Replace "gada-yourname" with a globally unique app name before deploying.
+app = "gada-yourname"
+primary_region = "jnb"   # Johannesburg — closest Fly region to Durban.
+                          # Run `fly platform regions` to confirm it's available;
+                          # fall back to "cdg" (Paris) or "lhr" (London) if not.
+
+[build]
+
+[env]
+  PORT = "3000"
+  NODE_ENV = "production"
+
+[[mounts]]
+  source = "gada_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1   # keep at least 1 running so websockets/sessions
+                              # don't drop and audit-log writes aren't lost
+                              # mid-scan. Set to 0 if you want to allow full
+                              # sleep and don't mind occasional cold starts.
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

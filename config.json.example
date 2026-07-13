@@ -1,0 +1,13 @@
+{
+  "locations": ["Reception", "Ward A", "Ward B", "Pharmacy"],
+  "users": [
+    {
+      "id": "admin",
+      "name": "Admin",
+      "role": "Admin",
+      "department": "Admin",
+      "access": "admin",
+      "pin": "CHANGE-THIS-PIN"
+    }
+  ]
+}
