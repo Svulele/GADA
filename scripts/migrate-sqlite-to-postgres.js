@@ -1,54 +1,8 @@
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-
 const Database = require('better-sqlite3');
 const { Client } = require('pg');
-
-function maskDatabaseUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    if (url.password) url.password = '****';
-    return url.toString();
-  } catch {
-    return 'configured DATABASE_URL';
-  }
-}
-
-function explainConnectionError(err, rawUrl) {
-  if (err.code === 'ENOTFOUND') {
-    return [
-      `Could not resolve the Postgres host: ${err.hostname}`,
-      '',
-      'Check DATABASE_URL in your .env file. It is still pointing at a host',
-      'that DNS cannot find. If you switched to Neon, paste the Neon connection',
-      'string here. If you are using Supabase, recopy the current Supabase',
-      'connection string and replace [YOUR-PASSWORD] with your database password.',
-      '',
-      `Current target: ${maskDatabaseUrl(rawUrl)}`
-    ].join('\n');
-  }
-
-  if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
-    return [
-      `Could not connect to Postgres (${err.code}).`,
-      'Check that the database is running and that your network can reach it.',
-      '',
-      `Current target: ${maskDatabaseUrl(rawUrl)}`
-    ].join('\n');
-  }
-
-  if (err.code === '28P01') {
-    return [
-      'Postgres rejected the username or password.',
-      'Check the password in DATABASE_URL. URL-encode special characters like @, #, %, /, and spaces.',
-      '',
-      `Current target: ${maskDatabaseUrl(rawUrl)}`
-    ].join('\n');
-  }
-
-  return err.message;
-}
 
 const sqlitePath = path.join(__dirname, '..', 'gada.db');
 if (!fs.existsSync(sqlitePath)) {
@@ -59,15 +13,12 @@ if (!fs.existsSync(sqlitePath)) {
 const sqliteDb = new Database(sqlitePath, { readonly: true });
 const pgUrl = process.env.DATABASE_URL;
 if (!pgUrl) {
-  console.error('Set DATABASE_URL in .env or in the environment before running this script.');
+  console.error('Set DATABASE_URL in the environment before running this script.');
   process.exit(1);
 }
 
-let pg;
-
 (async () => {
-  pg = new Client({ connectionString: pgUrl });
-  console.log(`Connecting to Postgres: ${maskDatabaseUrl(pgUrl)}`);
+  const pg = new Client({ connectionString: pgUrl });
   await pg.connect();
 
   const createSchema = `
@@ -122,11 +73,4 @@ CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
   await pg.end();
   sqliteDb.close();
   console.log('Migration complete.');
-})().catch(err => {
-  console.error(explainConnectionError(err, pgUrl));
-  try {
-    if (pg) pg.end();
-  } catch {}
-  sqliteDb.close();
-  process.exit(1);
-});
+})();
