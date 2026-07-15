@@ -15,13 +15,21 @@ const server = http.createServer(app);
 const io     = new Server(server, { cors: { origin: false } });
 
 // ── config ────────────────────────────────────────────────
+let envConfigCache = null;
+
 function loadConfig() {
   if (process.env.CONFIG_JSON) {
+    if (envConfigCache) return envConfigCache;
+
     try {
-      return JSON.parse(process.env.CONFIG_JSON);
+      envConfigCache = JSON.parse(process.env.CONFIG_JSON);
+      envConfigCache.locations ||= [];
+      envConfigCache.users ||= [];
+      return envConfigCache;
     } catch (err) {
       console.error('Failed to parse CONFIG_JSON:', err.message);
-      return { locations: [], users: [] };
+      envConfigCache = { locations: [], users: [] };
+      return envConfigCache;
     }
   }
 
@@ -30,7 +38,10 @@ function loadConfig() {
     : path.join(__dirname, "config.json");
 
   try {
-    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    cfg.locations ||= [];
+    cfg.users ||= [];
+    return cfg;
   } catch (err) {
     if (process.env.CONFIG_JSON_PATH) {
       console.error('Failed to load config from CONFIG_JSON_PATH:', configPath, err.message);
@@ -40,6 +51,15 @@ function loadConfig() {
 }
 
 function saveConfig(cfg) {
+  cfg.locations ||= [];
+  cfg.users ||= [];
+
+  if (process.env.CONFIG_JSON) {
+    envConfigCache = cfg;
+    process.env.CONFIG_JSON = JSON.stringify(cfg);
+    return;
+  }
+
   const configPath = process.env.CONFIG_JSON_PATH
     ? path.resolve(process.env.CONFIG_JSON_PATH)
     : path.join(__dirname, "config.json");

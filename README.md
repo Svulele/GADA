@@ -294,7 +294,7 @@ DATABASE_URL=postgres://user:password@host:5432/database
 - By default the app reads `config.json` from the project root.
 - In production you can instead set `CONFIG_JSON_PATH` to a writable config path.
 - For env-based config, set `CONFIG_JSON` to a JSON string containing `locations` and `users`.
-- If `CONFIG_JSON` is present, it is used instead of `config.json`.
+- If admins need to add or edit users in the app, prefer `CONFIG_JSON_PATH`; `CONFIG_JSON` is updated only inside the running server process and will reset on restart.
 
 ### Quick migration
 

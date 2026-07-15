@@ -138,6 +138,7 @@ Set this to a file path if the config file lives outside the repository.
 
 Set this to a JSON string to provide config directly from environment variables.
 This is useful on hosts where you do not want a repo file containing PINs.
+Admin changes to users and PINs are kept only for the current server process when this mode is used, so use `CONFIG_JSON_PATH` if accounts should be editable and survive restarts.
 
 Example:
 
