@@ -4,91 +4,207 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <title>GADA Kiosk</title>
-  <link rel="stylesheet" href="style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <style>
-    :root { color-scheme: dark; }
+    /*
+      Kiosk is a standalone, always-dark, wall-display view.
+      Every rule below is scoped under .kx-page and every class is
+      prefixed "kx-" so nothing here can collide with style.css
+      (which the rest of the app uses) or vice versa.
+    */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+
+    :root {
+      color-scheme: dark;
+      --k-bg:        #0d100c;
+      --k-panel:     #171b13;
+      --k-panel-2:   #1d2317;
+      --k-border:    rgba(255,255,255,0.09);
+      --k-border-2:  rgba(255,255,255,0.16);
+      --k-text:      #f3f6ee;
+      --k-text-dim:  #a7b89d;
+      --k-text-dim2: #78876f;
+      --k-green:     #4e8c62;
+      --k-green-lt:  #7fd28f;
+      --k-green-bg:  rgba(79,140,98,0.16);
+      --k-red:       #ef6b6b;
+      --k-red-bg:    rgba(239,107,107,0.14);
+      --font: 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
     html, body { height: 100%; margin: 0; }
-    body { background: #0d1208; color: #e8f3d8; font-family: Inter, sans-serif; overflow: hidden; }
-    * { box-sizing: border-box; }
-    a { color: inherit; text-decoration: none; }
-    .page { display: flex; flex-direction: column; height: 100vh; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 1.2rem 2rem; min-height: 7vh; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    .brand { display: flex; align-items: center; gap: 0.8rem; }
-    .brandIcon { width: clamp(2.2rem, 3vw, 3rem); height: clamp(2.2rem, 3vw, 3rem); background: #4a7c45; border-radius: 1rem; display: grid; place-items: center; }
-    .brandIcon svg { width: 60%; height: 60%; fill: #f4f1ec; }
-    .brandLabel { font-size: clamp(1.2rem, 2vw, 1.8rem); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-    .facilityName { font-size: clamp(1.2rem, 2vw, 1.9rem); font-weight: 700; color: #d9e8b7; text-align: center; flex: 1; }
-    .clockPanel { display: flex; align-items: center; gap: 1rem; font-size: clamp(1rem, 1.8vw, 1.5rem); font-weight: 600; }
-    .dot { width: clamp(0.8rem, 1.5vw, 1.2rem); height: clamp(0.8rem, 1.5vw, 1.2rem); border-radius: 50%; background: #8ad16a; box-shadow: 0 0 0 0 rgba(138,209,106,0.5); animation: pulse 1.6s infinite ease-in-out; }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(138,209,106,0.45); } 70% { box-shadow: 0 0 0 20px rgba(138,209,106,0); } 100% { box-shadow: 0 0 0 0 rgba(138,209,106,0); } }
-    .main { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; padding: 1rem 1.2rem 0; overflow: hidden; }
-    .locCard { background: rgba(17, 22, 12, 0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 1.4rem; padding: 1.2rem; display: flex; flex-direction: column; justify-content: space-between; min-height: 14rem; }
-    .locCard.empty { opacity: 0.42; }
-    .locCard.alert { border-color: #d04444; box-shadow: 0 0 0 1px rgba(208,68,68,0.2); }
-    .locTop { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
-    .locIcon { width: clamp(2.2rem, 3vw, 2.8rem); height: clamp(2.2rem, 3vw, 2.8rem); display: grid; place-items: center; background: rgba(138,209,106,0.16); border-radius: 1rem; color: #8ad16a; }
-    .locName { font-size: clamp(1.4rem, 2.4vw, 2rem); font-weight: 800; line-height: 1; margin-top: 1rem; }
-    .locMeta { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; font-size: clamp(1rem, 1.8vw, 1.4rem); color: #c8daaa; }
-    .statusBadge { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border-radius: 999px; font-size: clamp(0.85rem, 1.3vw, 1rem); background: rgba(208,68,68,0.14); color: #f6b2b2; }
-    .assetList { margin-top: 1.2rem; display: grid; gap: 0.7rem; overflow: hidden; }
-    .assetName { font-size: clamp(1.1rem, 1.8vw, 1.45rem); font-weight: 700; line-height: 1.1; color: #f2f5e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .assetName.secondary { font-size: clamp(0.95rem, 1.4vw, 1.2rem); color: #b9c49e; }
-    .ticker { min-height: 6.5rem; background: rgba(14, 18, 11, 0.9); border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; overflow: hidden; position: relative; padding: 0 1.2rem; }
-    .tickerTrack { display: inline-flex; gap: 3rem; white-space: nowrap; animation: scrollText 24s linear infinite; }
-    .tickerItem { display: inline-flex; flex-direction: column; gap: 0.3rem; color: #d7e4bb; font-size: clamp(0.95rem, 1.4vw, 1.2rem); }
-    .tickerLabel { font-size: clamp(1.1rem, 1.8vw, 1.4rem); font-weight: 700; }
-    .hint { position: absolute; right: 1.2rem; bottom: 0.9rem; font-size: clamp(0.75rem, 1vw, 0.95rem); color: rgba(255,255,255,0.55); }
-    @keyframes scrollText { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-    .warningIcon { width: 1.1em; height: 1.1em; display: inline-block; border-radius: 50%; background: #d04444; color: #fff; font-size: 0.9em; line-height: 1; text-align: center; }
+    body { background: var(--k-bg); color: var(--k-text); font-family: var(--font); overflow: hidden; -webkit-font-smoothing: antialiased; }
+    .kx-page * { box-sizing: border-box; }
+    .kx-page a { color: inherit; text-decoration: none; }
+
+    .kx-page { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Top bar ───────────────────────────── */
+    .kx-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.1rem 1.8rem; min-height: 6.5vh;
+      background: var(--k-panel);
+      border-bottom: 1px solid var(--k-border);
+    }
+    .kx-brand { display: flex; align-items: center; gap: 0.8rem; }
+    .kx-brandIcon {
+      width: clamp(2.1rem, 2.6vw, 2.7rem); height: clamp(2.1rem, 2.6vw, 2.7rem);
+      background: var(--k-green); border-radius: 0.85rem;
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .kx-brandIcon svg { width: 58%; height: 58%; stroke: #f3f6ee; }
+    .kx-brandLabel { font-size: clamp(1.05rem, 1.6vw, 1.4rem); font-weight: 800; letter-spacing: 0.09em; color: var(--k-text); }
+    .kx-facilityName { font-size: clamp(1rem, 1.6vw, 1.35rem); font-weight: 600; color: var(--k-text-dim); text-align: center; flex: 1; }
+    .kx-clockPanel { display: flex; align-items: center; gap: 0.9rem; }
+    .kx-clock { font-family: var(--mono); font-size: clamp(1.15rem, 2vw, 1.7rem); font-weight: 600; color: var(--k-text); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+    .kx-date { font-size: clamp(0.75rem, 1vw, 0.9rem); color: var(--k-text-dim2); font-weight: 500; }
+    .kx-clockCol { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+    .kx-liveDot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--k-green-lt); box-shadow: 0 0 0 0 rgba(127,210,143,0.5); animation: kx-pulse 1.8s infinite ease-in-out; flex-shrink: 0; }
+    @keyframes kx-pulse { 0% { box-shadow: 0 0 0 0 rgba(127,210,143,0.45); } 70% { box-shadow: 0 0 0 14px rgba(127,210,143,0); } 100% { box-shadow: 0 0 0 0 rgba(127,210,143,0); } }
+
+    /* ── Location grid ─────────────────────── */
+    .kx-main {
+      flex: 1; min-height: 0;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-auto-rows: 1fr;
+      gap: 1rem; padding: 1.1rem 1.3rem 0.6rem;
+      overflow: hidden;
+      align-content: start;
+    }
+    .kx-card {
+      background: var(--k-panel);
+      border: 1px solid var(--k-border);
+      border-radius: 1.1rem;
+      padding: 1.05rem 1.15rem;
+      display: flex; flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .kx-card.kx-empty { background: rgba(23,27,19,0.55); }
+    .kx-card.kx-empty .kx-locName, .kx-card.kx-empty .kx-count { color: var(--k-text-dim2); }
+    .kx-card.kx-alert { border-color: rgba(239,107,107,0.55); box-shadow: 0 0 0 1px rgba(239,107,107,0.18); }
+
+    .kx-cardTop { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-shrink: 0; }
+    .kx-locIcon {
+      width: clamp(2rem, 2.6vw, 2.4rem); height: clamp(2rem, 2.6vw, 2.4rem);
+      display: grid; place-items: center;
+      background: var(--k-green-bg); border-radius: 0.75rem;
+      font-size: clamp(1rem, 1.4vw, 1.25rem); flex-shrink: 0;
+    }
+    .kx-count { font-family: var(--mono); font-size: clamp(0.85rem, 1.1vw, 1.02rem); color: var(--k-text-dim); font-weight: 500; white-space: nowrap; }
+    .kx-locName {
+      font-size: clamp(1.15rem, 1.8vw, 1.55rem); font-weight: 800;
+      color: var(--k-text); line-height: 1.2;
+      margin-top: 0.7rem; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Fixed-height rows: each row owns its own line, so nothing can
+       visually overlap regardless of how many assets are in a location. */
+    .kx-assetList {
+      margin-top: 0.6rem;
+      flex: 1;
+      min-height: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .kx-assetRow {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem;
+      padding: 0.42rem 0;
+      line-height: 1.3;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      flex-shrink: 0;
+    }
+    .kx-assetRow:last-child { border-bottom: none; }
+    .kx-assetTag {
+      font-size: clamp(0.95rem, 1.3vw, 1.15rem); font-weight: 700; color: var(--k-text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .kx-assetLoc { font-family: var(--mono); font-size: clamp(0.72rem, 0.95vw, 0.85rem); color: var(--k-text-dim2); flex-shrink: 0; }
+    .kx-assetEmpty { font-size: clamp(0.95rem, 1.2vw, 1.1rem); color: var(--k-text-dim2); padding-top: 0.3rem; }
+    .kx-assetMore { font-family: var(--mono); font-size: clamp(0.78rem, 1vw, 0.92rem); color: var(--k-green-lt); padding-top: 0.35rem; flex-shrink: 0; }
+
+    .kx-statusBadge {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      margin-top: 0.55rem; padding: 0.32rem 0.7rem;
+      border-radius: 999px; font-size: clamp(0.72rem, 0.95vw, 0.85rem); font-weight: 600;
+      background: var(--k-red-bg); color: var(--k-red); flex-shrink: 0; width: fit-content;
+    }
+    .kx-warnDot { width: 0.85em; height: 0.85em; border-radius: 50%; background: var(--k-red); color: #1a0808; display: inline-grid; place-items: center; font-size: 0.75em; line-height: 1; }
+
+    /* ── Ticker ─────────────────────────────── */
+    .kx-ticker {
+      min-height: 4.6rem; flex-shrink: 0;
+      background: var(--k-panel-2);
+      border-top: 1px solid var(--k-border);
+      display: flex; align-items: center;
+      overflow: hidden; position: relative;
+      padding: 0 1.3rem;
+    }
+    .kx-tickerTrack { display: inline-flex; gap: 2.6rem; white-space: nowrap; animation: kx-scroll 26s linear infinite; padding-right: 8rem; }
+    .kx-tickerItem { display: inline-flex; align-items: baseline; gap: 0.6rem; color: var(--k-text-dim); font-size: clamp(0.85rem, 1.1vw, 1rem); }
+    .kx-tickerLabel { font-weight: 700; color: var(--k-text); }
+    .kx-tickerTag { font-family: var(--mono); color: var(--k-text-dim2); font-size: 0.9em; }
+    @keyframes kx-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    .kx-hint { position: absolute; right: 1.3rem; bottom: 0.55rem; font-size: clamp(0.68rem, 0.85vw, 0.8rem); color: var(--k-text-dim2); background: var(--k-panel-2); padding-left: 0.6rem; }
+
     @media (max-width: 900px) {
-      .topbar { flex-wrap: wrap; align-items: flex-start; padding: 1rem; }
-      .facilityName { order: 3; width: 100%; text-align: left; margin-top: 0.5rem; }
-      .main { padding-top: 0.5rem; }
-      .ticker { min-height: 8rem; }
+      .kx-topbar { flex-wrap: wrap; row-gap: 0.5rem; padding: 0.9rem 1rem; }
+      .kx-facilityName { order: 3; width: 100%; text-align: left; }
+      .kx-main { grid-auto-rows: auto; overflow-y: auto; }
+      .kx-ticker { min-height: 5.5rem; }
     }
     @media (max-width: 620px) {
-      .main { grid-template-columns: 1fr; }
-      .locCard { min-height: 12rem; }
+      .kx-main { grid-template-columns: 1fr; }
     }
   </style>
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      if (localStorage.getItem('gadaDark') === '1') document.body.classList.add('dark');
-    });
+    // Kiosk is always dark by design (it's a wall/TV display) — no light-mode
+    // flash, no dependency on the app's own light/dark toggle.
   </script>
 </head>
 <body>
-  <div class="page">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brandIcon">
+  <div class="kx-page">
+    <header class="kx-topbar">
+      <div class="kx-brand">
+        <div class="kx-brandIcon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/></svg>
         </div>
-        <div class="brandLabel">GADA</div>
+        <div class="kx-brandLabel">GADA</div>
       </div>
-      <div class="facilityName">GADA Ward Dashboard</div>
-      <div class="clockPanel"><span id="liveClock">00:00:00</span><span class="dot" aria-hidden="true"></span></div>
+      <div class="kx-facilityName">Ward Dashboard</div>
+      <div class="kx-clockPanel">
+        <div class="kx-clockCol">
+          <span class="kx-clock" id="liveClock">00:00:00</span>
+          <span class="kx-date" id="liveDate"></span>
+        </div>
+        <span class="kx-liveDot" aria-hidden="true" title="Live"></span>
+      </div>
     </header>
-    <main class="main" id="locationGrid"></main>
-    <footer class="ticker">
-      <div class="tickerTrack" id="tickerTrack"></div>
-      <div class="hint">Press F11 for full screen</div>
+
+    <main class="kx-main" id="locationGrid"></main>
+
+    <footer class="kx-ticker">
+      <div class="kx-tickerTrack" id="tickerTrack"></div>
+      <div class="kx-hint">F11 for full screen</div>
     </footer>
   </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const locationGrid = document.getElementById('locationGrid');
     const tickerTrack = document.getElementById('tickerTrack');
     const liveClock = document.getElementById('liveClock');
+    const liveDate = document.getElementById('liveDate');
+    const MAX_ROWS_PER_CARD = 4;
     let kioskData = { locations: [], assets: [] };
     let socket = null;
 
-    function formatTime(date) {
-      return date.toLocaleTimeString([], { hour12: false });
-    }
-
     function updateClock() {
-      liveClock.textContent = formatTime(new Date());
+      const now = new Date();
+      liveClock.textContent = now.toLocaleTimeString([], { hour12: false });
+      liveDate.textContent = now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
     }
 
     function safeName(name) {
@@ -103,7 +219,14 @@
       if (n.includes('triage')) return '🚑';
       if (n.includes('radio')) return '📡';
       if (n.includes('reception') || n.includes('recep')) return '🏢';
+      if (n.includes('record')) return '🗂️';
       return '📍';
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
     }
 
     function renderLocations() {
@@ -119,20 +242,31 @@
         const assets = assetsByLocation[loc] || [];
         const missing = assets.some(a => a.status === 'missing');
         const count = assets.length;
-        const assetNames = assets.slice(0, 4).map(a => `<div class="assetName">${safeName(a.name)}</div>`).join('');
+        const visible = assets.slice(0, MAX_ROWS_PER_CARD);
+        const overflowCount = count - visible.length;
+
+        const rows = visible.map(a => `
+          <div class="kx-assetRow">
+            <span class="kx-assetTag">${escapeHtml(safeName(a.name))}</span>
+            <span class="kx-assetLoc">${escapeHtml(a.tag || '')}</span>
+          </div>`).join('');
+
+        const moreRow = overflowCount > 0
+          ? `<div class="kx-assetMore">+${overflowCount} more</div>`
+          : '';
+
         return `
-          <article class="locCard ${count === 0 ? 'empty' : ''} ${missing ? 'alert' : ''}">
-            <div class="locTop">
-              <div>
-                <div class="locIcon">${locationIcon(loc)}</div>
-              </div>
-              <div class="locMeta">${count} asset${count === 1 ? '' : 's'}</div>
+          <article class="kx-card ${count === 0 ? 'kx-empty' : ''} ${missing ? 'kx-alert' : ''}">
+            <div class="kx-cardTop">
+              <div class="kx-locIcon">${locationIcon(loc)}</div>
+              <div class="kx-count">${count} asset${count === 1 ? '' : 's'}</div>
             </div>
-            <div class="locName">${safeName(loc)}</div>
-            <div class="assetList">
-              ${assetNames || '<div class="assetName secondary">No assets</div>'}
+            <div class="kx-locName">${escapeHtml(safeName(loc))}</div>
+            <div class="kx-assetList">
+              ${rows || '<div class="kx-assetEmpty">No assets here</div>'}
+              ${moreRow}
             </div>
-            ${missing ? `<div class="statusBadge"><span class="warningIcon">!</span> Missing asset</div>` : ''}
+            ${missing ? `<div class="kx-statusBadge"><span class="kx-warnDot">!</span> Missing asset</div>` : ''}
           </article>`;
       }).join('');
     }
@@ -140,23 +274,20 @@
     function renderTicker() {
       const events = kioskData.assets
         .filter(a => a.last_location)
-        .sort((a,b) => String(a.tag).localeCompare(String(b.tag)))
-        .slice(0, 5)
-        .map(a => ({
-          tag: a.tag,
-          name: a.name,
-          location: a.last_location,
-          status: a.status
-        }));
+        .sort((a, b) => String(a.tag).localeCompare(String(b.tag)))
+        .slice(0, 6);
+
       if (!events.length) {
-        tickerTrack.innerHTML = '<div class="tickerItem"><span class="tickerLabel">No recent activity</span></div>';
+        tickerTrack.innerHTML = '<div class="kx-tickerItem"><span class="kx-tickerLabel">No recent activity</span></div>';
         return;
       }
+
       const items = events.map(event => `
-        <div class="tickerItem">
-          <span class="tickerLabel">${safeName(event.name)}</span>
-          <span>${event.tag} • ${safeName(event.location)}${event.status === 'missing' ? ' • MISSING' : ''}</span>
+        <div class="kx-tickerItem">
+          <span class="kx-tickerLabel">${escapeHtml(safeName(event.name))}</span>
+          <span class="kx-tickerTag">${escapeHtml(event.tag || '')} · ${escapeHtml(safeName(event.last_location))}${event.status === 'missing' ? ' · MISSING' : ''}</span>
         </div>`).join('');
+
       tickerTrack.innerHTML = items + items;
     }
 

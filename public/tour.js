@@ -1,6 +1,13 @@
 (function() {
   const VERSION = 'v1';
-  const PATH_KEY = location.pathname === '/' ? 'dashboard' : location.pathname.replace(/^\/|\.html$/g, '') || 'dashboard';
+  // Normalize "/", "/index.html" and "index" all to the same page key.
+  // Previously "/index.html" produced PATH_KEY "index", which has no
+  // matching entry in TOURS below — so filteredSteps() came back empty
+  // and the "seen" flag never got set for that URL, causing the tour
+  // to reappear whenever the app happened to land on /index.html
+  // instead of /.
+  const rawPath = location.pathname.replace(/^\/|\.html$/g, '') || 'dashboard';
+  const PATH_KEY = (rawPath === 'index' || rawPath === '') ? 'dashboard' : rawPath;
 
   const TOURS = {
     dashboard: [
@@ -92,6 +99,24 @@
 
   function storageKey() {
     return `gadaTourDone:${userId}:${PATH_KEY}:${VERSION}`;
+  }
+
+  function hasSeenTour() {
+    try {
+      return !!localStorage.getItem(storageKey());
+    } catch {
+      // If storage isn't readable, err on the side of NOT showing the
+      // tour again rather than repeating it every load.
+      return true;
+    }
+  }
+
+  function markTourSeen() {
+    try {
+      localStorage.setItem(storageKey(), '1');
+    } catch {
+      /* best effort; nothing else we can do here */
+    }
   }
 
   function pageTour() {
@@ -199,14 +224,13 @@
     resizeHandler = () => active && positionStep();
     window.addEventListener('resize', resizeHandler);
     document.addEventListener('keydown', onKeyDown);
-    if (manual) localStorage.removeItem(storageKey());
     positionStep();
   }
 
   function endTour() {
     if (!active) return;
     active = false;
-    localStorage.setItem(storageKey(), '1');
+    markTourSeen();
     overlay?.classList.remove('show');
     spotlight?.classList.remove('show');
     card?.classList.remove('show');
@@ -265,13 +289,15 @@
     try {
       const me = await fetch('/api/me', { credentials: 'include' }).then(r => r.json());
       if (!me.user) return;
-      userId = me.user.id || me.user.name || 'local';
+      // Trim/lowercase so the same person never gets two different keys
+      // due to whitespace or casing differences coming back from the API.
+      userId = String(me.user.id || me.user.name || 'local').trim().toLowerCase() || 'local';
     } catch {
       return;
     }
 
     window.setTimeout(() => {
-      if (!localStorage.getItem(storageKey())) startTour(false);
+      if (!hasSeenTour()) startTour(false);
     }, 900);
   }
 
