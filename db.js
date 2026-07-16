@@ -43,10 +43,21 @@ function createSqliteDb() {
 
 function createPostgresDb() {
   const { Pool } = require("pg");
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  const safeDatabaseUrl = (() => {
+  const connectionString = (() => {
     try {
       const url = new URL(process.env.DATABASE_URL);
+      if (url.searchParams.get("sslmode") === "require") {
+        url.searchParams.set("sslmode", "verify-full");
+      }
+      return url.toString();
+    } catch {
+      return process.env.DATABASE_URL;
+    }
+  })();
+  const pool = new Pool({ connectionString });
+  const safeDatabaseUrl = (() => {
+    try {
+      const url = new URL(connectionString);
       if (url.password) url.password = "****";
       return url.toString();
     } catch {
@@ -139,6 +150,13 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_asset_id ON events(asset_id);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_asset_created_at ON events(asset_id, created_at DESC);
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'available';
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE events ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
   } else {
     const dbPath = path.join(__dirname, "gada.db");

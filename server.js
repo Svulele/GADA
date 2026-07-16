@@ -16,53 +16,63 @@ const io     = new Server(server, { cors: { origin: false } });
 
 // ── config ────────────────────────────────────────────────
 let envConfigCache = null;
+let configLoadWarningShown = false;
+
+function normalizeConfig(cfg) {
+  cfg.locations ||= [];
+  cfg.users ||= [];
+  return cfg;
+}
+
+function getConfigPath() {
+  return process.env.CONFIG_JSON_PATH
+    ? path.resolve(process.env.CONFIG_JSON_PATH)
+    : path.join(__dirname, "config.json");
+}
 
 function loadConfig() {
-  if (process.env.CONFIG_JSON) {
-    if (envConfigCache) return envConfigCache;
+  const configPath = getConfigPath();
+  const shouldReadFile = Boolean(process.env.CONFIG_JSON_PATH) || fs.existsSync(configPath);
 
+  if (shouldReadFile) {
     try {
-      envConfigCache = JSON.parse(process.env.CONFIG_JSON);
-      envConfigCache.locations ||= [];
-      envConfigCache.users ||= [];
-      return envConfigCache;
+      return normalizeConfig(JSON.parse(fs.readFileSync(configPath, "utf8")));
     } catch (err) {
-      console.error('Failed to parse CONFIG_JSON:', err.message);
-      envConfigCache = { locations: [], users: [] };
-      return envConfigCache;
+      if (!configLoadWarningShown) {
+        console.error("Failed to load config file:", configPath, err.message);
+        configLoadWarningShown = true;
+      }
+      return { locations: [], users: [] };
     }
   }
 
-  const configPath = process.env.CONFIG_JSON_PATH
-    ? path.resolve(process.env.CONFIG_JSON_PATH)
-    : path.join(__dirname, "config.json");
+  if (!process.env.CONFIG_JSON) return { locations: [], users: [] };
 
+  if (envConfigCache) return envConfigCache;
   try {
-    const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    cfg.locations ||= [];
-    cfg.users ||= [];
-    return cfg;
+    envConfigCache = normalizeConfig(JSON.parse(process.env.CONFIG_JSON));
+    return envConfigCache;
   } catch (err) {
-    if (process.env.CONFIG_JSON_PATH) {
-      console.error('Failed to load config from CONFIG_JSON_PATH:', configPath, err.message);
+    if (!configLoadWarningShown) {
+      console.error("Failed to parse CONFIG_JSON:", err.message);
+      configLoadWarningShown = true;
     }
-    return { locations: [], users: [] };
+    envConfigCache = { locations: [], users: [] };
+    return envConfigCache;
   }
 }
 
 function saveConfig(cfg) {
-  cfg.locations ||= [];
-  cfg.users ||= [];
+  normalizeConfig(cfg);
 
-  if (process.env.CONFIG_JSON) {
+  const configPath = getConfigPath();
+  const shouldWriteFile = Boolean(process.env.CONFIG_JSON_PATH) || fs.existsSync(configPath);
+
+  if (!shouldWriteFile && process.env.CONFIG_JSON) {
     envConfigCache = cfg;
     process.env.CONFIG_JSON = JSON.stringify(cfg);
     return;
   }
-
-  const configPath = process.env.CONFIG_JSON_PATH
-    ? path.resolve(process.env.CONFIG_JSON_PATH)
-    : path.join(__dirname, "config.json");
 
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf8");
 }
@@ -195,14 +205,29 @@ app.get("/api/me", (req, res) => {
 
 // ── asset routes ───────────────────────────────────────────
 app.get("/api/assets", requireAuth, async (req, res) => {
-  const rows = await db.prepare(`
+  const sql = isPostgres ? `
     SELECT a.*,
-      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
-      (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by,
-      (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
+      last_event.location AS last_location,
+      last_event.scanned_by AS last_scanned_by,
+      last_event.created_at AS last_seen
     FROM assets a
-    ORDER BY COALESCE(last_seen, a.created_at) DESC
-  `).all();
+    LEFT JOIN LATERAL (
+      SELECT e.location, e.scanned_by, e.created_at
+      FROM events e
+      WHERE e.asset_id = a.asset_id
+      ORDER BY e.created_at DESC, e.event_id DESC
+      LIMIT 1
+    ) last_event ON true
+    ORDER BY COALESCE(last_event.created_at, a.created_at) DESC, LOWER(a.tag)
+  ` : `
+    SELECT a.*,
+      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_location,
+      (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_scanned_by,
+      (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_seen
+    FROM assets a
+    ORDER BY COALESCE(last_seen, a.created_at) DESC, a.tag COLLATE NOCASE
+  `;
+  const rows = await db.prepare(sql).all();
   res.json(rows);
 });
 
@@ -557,6 +582,12 @@ app.delete("/api/users/:id", requireAdmin, (req, res) => {
   cfg.users = cfg.users.filter(u => (typeof u === "string" ? u : u.id) !== req.params.id);
   saveConfig(cfg);
   res.json({ ok: true });
+});
+
+app.use("/api", (err, req, res, next) => {
+  console.error(`API error ${req.method} ${req.originalUrl}:`, err.message);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "Server error" });
 });
 
 // ── websocket ──────────────────────────────────────────────

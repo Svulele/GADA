@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "screenshots": "node scripts/capture-demo-screenshots.js",
+    "screenshots:headed": "HEADLESS=0 node scripts/capture-demo-screenshots.js",
     "backup": "bash backup.sh",
     "migrate:sqlite-to-postgres": "node scripts/migrate-sqlite-to-postgres.js"
   },
@@ -23,6 +25,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "playwright": "^1.61.1"
   }
 }
