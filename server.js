@@ -32,7 +32,9 @@ function getConfigPath() {
 
 function loadConfig() {
   const configPath = getConfigPath();
-  const shouldReadFile = Boolean(process.env.CONFIG_JSON_PATH) || fs.existsSync(configPath);
+  const configPathWasExplicit = Boolean(process.env.CONFIG_JSON_PATH);
+  const configFileExists = fs.existsSync(configPath);
+  const shouldReadFile = configPathWasExplicit || configFileExists;
 
   if (shouldReadFile) {
     try {
@@ -59,6 +61,24 @@ function loadConfig() {
     }
     envConfigCache = { locations: [], users: [] };
     return envConfigCache;
+  }
+}
+
+function validateConfigForStartup() {
+  const cfg = loadConfig();
+  const configPath = getConfigPath();
+  const hasExplicitPath = Boolean(process.env.CONFIG_JSON_PATH);
+  const hasFile = fs.existsSync(configPath);
+  const hasEnv = Boolean(process.env.CONFIG_JSON);
+  const source = hasFile || hasExplicitPath ? configPath : "CONFIG_JSON";
+  const usersCount = Array.isArray(cfg.users) ? cfg.users.length : 0;
+
+  if (!hasFile && !hasEnv) {
+    throw new Error(`No config source found. Expected config file at ${configPath} or CONFIG_JSON.`);
+  }
+
+  if (usersCount === 0) {
+    throw new Error(`Config loaded from ${source} but contains 0 users.`);
   }
 }
 
@@ -609,6 +629,12 @@ server.on("error", err => {
 
 db.ready
   .then(() => {
+    try {
+      validateConfigForStartup();
+    } catch (err) {
+      console.error("FATAL: Config validation failed:", err.message);
+      process.exit(1);
+    }
     server.listen(PORT, () => console.log(`\n🏥 GADA running → http://localhost:${PORT}\n`));
   })
   .catch(err => {

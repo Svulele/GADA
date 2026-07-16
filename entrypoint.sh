@@ -21,11 +21,16 @@ ln -s /data/gada.db /app/gada.db
 if [ ! -f /data/config.json ]; then
   if [ -f /app/config.json ]; then
     cp /app/config.json /data/config.json
+  elif [ -n "$CONFIG_JSON" ]; then
+    printf '%s\n' "$CONFIG_JSON" > /data/config.json
+  else
+    echo "FATAL: Missing config.json. Provide /data/config.json, include /app/config.json in the image, or set CONFIG_JSON for first boot." >&2
+    exit 1
   fi
 fi
-if [ -f /data/config.json ]; then
-  rm -f /app/config.json
-  ln -s /data/config.json /app/config.json
-fi
+rm -f /app/config.json
+ln -s /data/config.json /app/config.json
+
+export CONFIG_JSON_PATH=/data/config.json
 
 exec "$@"
