@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Status — GADA</title>
+  <link rel="stylesheet" href="style.css"/>
+  <script>
+    if (localStorage.getItem('gadaDark') === '1') document.documentElement.classList.add('dark-pending');
+  </script>
+  <style>
+    html.dark-pending body { background: #111410; }
+    body { background: var(--bg); color: var(--text); }
+    .glancePage { max-width: 480px; margin: 0 auto; padding: 16px 16px 40px; }
+    .glanceHeader { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 18px; }
+    .glanceHeader a { color: var(--text-2); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+    .glanceTitle { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+    .glanceDot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(61,110,78,0.4); animation: glancePulse 1.8s infinite ease-in-out; }
+    @keyframes glancePulse { 0% { box-shadow: 0 0 0 0 rgba(61,110,78,0.35); } 70% { box-shadow: 0 0 0 10px rgba(61,110,78,0); } 100% { box-shadow: 0 0 0 0 rgba(61,110,78,0); } }
+
+    .statGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+    .statCard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 10px; text-align: center; }
+    .statValue { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--text); line-height: 1.1; }
+    .statLabel { font-size: 10px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+
+    .sectionLabel { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); margin: 4px 2px 8px; }
+    .alertList { display: grid; gap: 8px; }
+    .alertCard { background: var(--red-bg); border: 1px solid var(--red); border-color: color-mix(in srgb, var(--red) 35%, var(--border)); border-radius: 14px; padding: 12px 14px; }
+    .alertCard.overdue { background: var(--amber-bg); border-color: var(--amber-mid); }
+    .alertTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .alertName { font-weight: 700; font-size: 14px; color: var(--text); }
+    .alertBadge { font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 999px; background: var(--red); color: #fff; flex-shrink: 0; }
+    .alertBadge.overdue { background: var(--amber); }
+    .alertMeta { margin-top: 4px; font-size: 12px; color: var(--text-2); }
+    .allClear { background: var(--green-bg); border: 1px solid var(--green-mid); border-radius: 14px; padding: 16px; text-align: center; color: var(--green-text); font-size: 13px; font-weight: 600; }
+
+    .glanceFooter { margin-top: 22px; text-align: center; font-size: 11px; color: var(--text-3); }
+    .refreshNote { font-family: var(--mono); }
+    .loadErr { text-align: center; padding: 30px 10px; color: var(--text-3); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="glancePage">
+    <div class="glanceHeader">
+      <a href="/">← Dashboard</a>
+      <div class="glanceTitle"><span class="glanceDot"></span> Live status</div>
+      <button id="darkToggle" style="border:none;background:transparent;color:var(--text-3);font-size:13px;cursor:pointer;">◐</button>
+    </div>
+
+    <div class="statGrid" id="statGrid">
+      <div class="statCard"><div class="statValue" id="statAssets">—</div><div class="statLabel">Assets</div></div>
+      <div class="statCard"><div class="statValue" id="statToday">—</div><div class="statLabel">Scanned today</div></div>
+      <div class="statCard"><div class="statValue" id="statLocations">—</div><div class="statLabel">Locations active</div></div>
+    </div>
+
+    <div class="sectionLabel" id="alertsLabel">Needs attention</div>
+    <div class="alertList" id="alertList"><div class="loadErr">Loading…</div></div>
+
+    <div class="glanceFooter">
+      Auto-refreshes every 20s · last updated <span class="refreshNote" id="lastUpdated">—</span>
+    </div>
+  </div>
+
+  <script>
+    const statAssets = document.getElementById('statAssets');
+    const statToday = document.getElementById('statToday');
+    const statLocations = document.getElementById('statLocations');
+    const alertsLabel = document.getElementById('alertsLabel');
+    const alertList = document.getElementById('alertList');
+    const lastUpdated = document.getElementById('lastUpdated');
+    const darkToggle = document.getElementById('darkToggle');
+
+    if (localStorage.getItem('gadaDark') === '1') document.body.classList.add('dark');
+    darkToggle.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('gadaDark', document.body.classList.contains('dark') ? '1' : '0');
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    }
+
+    function fmtHours(h) {
+      if (h == null) return '';
+      if (h < 1) return 'under an hour ago';
+      if (h < 48) return `${Math.round(h)}h ago`;
+      return `${Math.round(h / 24)}d ago`;
+    }
+
+    function renderAlerts(alerts) {
+      if (!alerts.length) {
+        alertsLabel.textContent = 'Needs attention';
+        alertList.innerHTML = '<div class="allClear">Everything is accounted for. No missing or overdue assets.</div>';
+        return;
+      }
+      alertsLabel.textContent = `Needs attention (${alerts.length})`;
+      alertList.innerHTML = alerts.map(a => {
+        const missing = a.status === 'missing';
+        return `
+          <div class="alertCard ${missing ? '' : 'overdue'}">
+            <div class="alertTop">
+              <span class="alertName">${escapeHtml(a.name || a.tag)}</span>
+              <span class="alertBadge ${missing ? '' : 'overdue'}">${missing ? 'Missing' : 'Overdue'}</span>
+            </div>
+            <div class="alertMeta">${escapeHtml(a.tag)} · last at ${escapeHtml(a.last_location || 'unknown')}${a.hours_since != null ? ' · ' + fmtHours(a.hours_since) : ''}</div>
+          </div>`;
+      }).join('');
+    }
+
+    async function load() {
+      try {
+        const [assets, cfg, alerts] = await Promise.all([
+          fetch('/api/assets', { credentials: 'include' }).then(r => {
+            if (r.status === 401) throw new Error('unauth');
+            return r.json();
+          }),
+          fetch('/api/config', { cache: 'no-store' }).then(r => r.json()),
+          fetch('/api/alerts', { credentials: 'include' }).then(r => r.json())
+        ]);
+
+        const locations = Array.isArray(cfg.locations) ? cfg.locations : [];
+        statAssets.textContent = assets.length;
+
+        const today = assets.filter(a => {
+          if (!a.last_seen) return false;
+          const d = new Date(a.last_seen);
+          return !isNaN(d) && d.toDateString() === new Date().toDateString();
+        }).length;
+        statToday.textContent = today;
+
+        const activeLocations = locations.filter(loc => assets.some(a => a.last_location === loc)).length;
+        statLocations.textContent = `${activeLocations}/${locations.length}`;
+
+        renderAlerts(alerts);
+        lastUpdated.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch (err) {
+        if (err.message === 'unauth') { window.location.href = '/login.html'; return; }
+        alertList.innerHTML = '<div class="loadErr">Could not load status. Check your connection.</div>';
+      }
+    }
+
+    load();
+    setInterval(load, 20000);
+  </script>
+</body>
+</html>

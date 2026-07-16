@@ -605,8 +605,17 @@ dialog::backdrop { background: rgba(20,18,14,0.28); backdrop-filter: blur(4px); 
   .scanWrap { grid-template-columns: 1fr; }
 }
 @media(max-width:640px) {
-  .topbar { padding:0 16px; grid-template-columns:1fr auto; }
-  .navRight { display:none; }
+  .topbar { padding:0 12px; grid-template-columns: auto 1fr auto; gap:8px; }
+  /* Let nav links scroll horizontally instead of overflowing the page
+     if they don't all fit (same treatment already used for adminTabs). */
+  .nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* navRight used to be display:none on phones, which meant there was
+     no way to reach the account/login page or toggle dark mode from
+     the Dashboard or Admin screens at all. Keep it, just compact:
+     drop the name/role text and show the avatar + toggle only. */
+  .navRight { gap:6px; }
+  .userChip { padding:6px; gap:0; }
+  .userName, .userRole, .userCaret { display:none; }
   main { padding:18px 14px 56px; }
   .facilityGrid { grid-template-columns: 1fr 1fr; gap:8px; }
   .alertRow { grid-template-columns: 1fr; align-items: start; }
@@ -617,7 +626,14 @@ dialog::backdrop { background: rgba(20,18,14,0.28); backdrop-filter: blur(4px); 
   .labelGrid { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns:1fr; }
   .loginTop,.loginBody { padding:22px; }
-  .actMeta { display:none; }
+  /* .actMeta is reused in two places: the dashboard's activity feed
+     (just a timestamp) AND the admin Users/Assets/Audit rows, where
+     it holds the Edit/Delete/View-activity buttons and the action +
+     operator columns. Hiding it entirely (the old rule) made those
+     admin rows untappable/unreadable on a phone. Wrap it onto its own
+     line instead so everything stays reachable. */
+  .actItem { flex-wrap: wrap; }
+  .actMeta { flex-basis: 100%; justify-content: flex-end; padding-top: 6px; }
   body::after {
     left: 50%;
     right: auto;
