@@ -11,15 +11,22 @@ modal.addEventListener('click', e => { if (e.target === modal) modal.close(); })
 // ── helpers ──────────────────────────────────────
 function toDate(s) {
   if (!s) return null;
-  return new Date(s.replace(' ','T')+'Z');
+  const value = String(s).trim();
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 function timeAgo(s) {
   const d = toDate(s); if (!d) return '—';
-  const m = Math.floor((Date.now()-d)/60000);
+  const m = Math.max(0, Math.floor((Date.now()-d)/60000));
   if (m < 1)  return 'Just now';
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m/60);
   if (h < 24) return `${h}h ago`;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return `${Math.floor(h/24)}d ago`;
 }
 function fullDate(s) {
@@ -223,7 +230,7 @@ function renderActivity(assets) {
   const feed = document.getElementById('activityFeed');
   const recent = assets
     .filter(a => a.last_seen)
-    .sort((a,b) => new Date(b.last_seen.replace(' ','T')+'Z') - new Date(a.last_seen.replace(' ','T')+'Z'))
+    .sort((a,b) => (toDate(b.last_seen)?.getTime() || 0) - (toDate(a.last_seen)?.getTime() || 0))
     .slice(0, 8);
 
   if (!recent.length) {

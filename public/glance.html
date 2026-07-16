@@ -89,6 +89,15 @@
       return `${Math.round(h / 24)}d ago`;
     }
 
+    function toDate(value) {
+      if (!value) return null;
+      const raw = String(value).trim();
+      const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+      const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+      const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
     function renderAlerts(alerts) {
       if (!alerts.length) {
         alertsLabel.textContent = 'Needs attention';
@@ -125,8 +134,8 @@
 
         const today = assets.filter(a => {
           if (!a.last_seen) return false;
-          const d = new Date(a.last_seen);
-          return !isNaN(d) && d.toDateString() === new Date().toDateString();
+          const d = toDate(a.last_seen);
+          return d && d.toDateString() === new Date().toDateString();
         }).length;
         statToday.textContent = today;
 

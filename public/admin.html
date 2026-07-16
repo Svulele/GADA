@@ -364,7 +364,11 @@ function escapeHtml(value) {
 
 function toDate(s) {
   if (!s) return null;
-  return new Date(s.replace(' ','T')+'Z');
+  const value = String(s).trim();
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function fullDate(s) {

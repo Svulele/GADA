@@ -135,6 +135,34 @@ function formatUser(id, cfg) {
   return { id: u.id, name: u.name, role: u.role, department: u.department, access: u.access || "staff" };
 }
 
+const TIMESTAMP_FIELDS = new Set(["created_at", "updated_at", "last_seen"]);
+
+function normalizeTimestampValue(value) {
+  if (value == null || value === "") return value;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value !== "string") return value;
+
+  const trimmed = value.trim();
+  const withTimeSeparator = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(withTimeSeparator);
+  const candidate = hasTimezone ? withTimeSeparator : `${withTimeSeparator}Z`;
+  const parsed = new Date(candidate);
+
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+function normalizeTimestamps(value, key = "") {
+  if (TIMESTAMP_FIELDS.has(key)) return normalizeTimestampValue(value);
+  if (Array.isArray(value)) return value.map(item => normalizeTimestamps(item));
+  if (!value || typeof value !== "object" || value instanceof Date) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [entryKey, normalizeTimestamps(entryValue, entryKey)])
+  );
+}
+
 // ── middleware ─────────────────────────────────────────────
 app.set("trust proxy", 1);
 app.use(express.json());
@@ -153,6 +181,12 @@ app.use(session({
     maxAge: 8 * 60 * 60 * 1000  // 8-hour session timeout
   }
 }));
+
+app.use("/api", (req, res, next) => {
+  const sendJson = res.json.bind(res);
+  res.json = body => sendJson(normalizeTimestamps(body));
+  next();
+});
 
 // rate-limit login attempts: 10 per 15 min per IP
 const loginLimiter = rateLimit({
@@ -509,8 +543,8 @@ app.get("/api/reports/shift", requireAdmin, async (req, res) => {
     return res.status(400).json({ error: "Invalid date range" });
   }
 
-  const fromTs = fromDate.toISOString().slice(0, 19).replace('T', ' ');
-  const toTs = toDate.toISOString().slice(0, 19).replace('T', ' ');
+  const fromTs = isPostgres ? fromDate.toISOString() : fromDate.toISOString().slice(0, 19).replace('T', ' ');
+  const toTs = isPostgres ? toDate.toISOString() : toDate.toISOString().slice(0, 19).replace('T', ' ');
   const rows = await db.prepare(`
     SELECT a.tag, a.name, a.category, e.action, e.location, e.scanned_by, e.notes, e.created_at
     FROM events e
