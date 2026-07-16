@@ -30,15 +30,21 @@ function getConfigPath() {
     : path.join(__dirname, "config.json");
 }
 
+function getExampleConfigPath() {
+  return path.join(__dirname, "config.example.json");
+}
+
+function readConfigFile(configPath) {
+  return normalizeConfig(JSON.parse(fs.readFileSync(configPath, "utf8")));
+}
+
 function loadConfig() {
   const configPath = getConfigPath();
-  const configPathWasExplicit = Boolean(process.env.CONFIG_JSON_PATH);
-  const configFileExists = fs.existsSync(configPath);
-  const shouldReadFile = configPathWasExplicit || configFileExists;
+  const exampleConfigPath = getExampleConfigPath();
 
-  if (shouldReadFile) {
+  if (process.env.CONFIG_JSON_PATH || fs.existsSync(configPath)) {
     try {
-      return normalizeConfig(JSON.parse(fs.readFileSync(configPath, "utf8")));
+      return readConfigFile(configPath);
     } catch (err) {
       if (!configLoadWarningShown) {
         console.error("Failed to load config file:", configPath, err.message);
@@ -48,33 +54,52 @@ function loadConfig() {
     }
   }
 
-  if (!process.env.CONFIG_JSON) return { locations: [], users: [] };
+  if (fs.existsSync(exampleConfigPath)) {
+    try {
+      return readConfigFile(exampleConfigPath);
+    } catch (err) {
+      if (!configLoadWarningShown) {
+        console.error("Failed to load example config file:", exampleConfigPath, err.message);
+        configLoadWarningShown = true;
+      }
+      return { locations: [], users: [] };
+    }
+  }
 
   if (envConfigCache) return envConfigCache;
-  try {
-    envConfigCache = normalizeConfig(JSON.parse(process.env.CONFIG_JSON));
-    return envConfigCache;
-  } catch (err) {
-    if (!configLoadWarningShown) {
-      console.error("Failed to parse CONFIG_JSON:", err.message);
-      configLoadWarningShown = true;
+  if (process.env.CONFIG_JSON) {
+    try {
+      envConfigCache = normalizeConfig(JSON.parse(process.env.CONFIG_JSON));
+      return envConfigCache;
+    } catch (err) {
+      if (!configLoadWarningShown) {
+        console.error("Failed to parse CONFIG_JSON:", err.message);
+        configLoadWarningShown = true;
+      }
+      envConfigCache = { locations: [], users: [] };
+      return envConfigCache;
     }
-    envConfigCache = { locations: [], users: [] };
-    return envConfigCache;
   }
+
+  return { locations: [], users: [] };
 }
 
 function validateConfigForStartup() {
   const cfg = loadConfig();
   const configPath = getConfigPath();
-  const hasExplicitPath = Boolean(process.env.CONFIG_JSON_PATH);
+  const exampleConfigPath = getExampleConfigPath();
   const hasFile = fs.existsSync(configPath);
+  const hasExampleFile = fs.existsSync(exampleConfigPath);
   const hasEnv = Boolean(process.env.CONFIG_JSON);
-  const source = hasFile || hasExplicitPath ? configPath : "CONFIG_JSON";
+  const source = process.env.CONFIG_JSON_PATH || hasFile
+    ? configPath
+    : hasExampleFile
+      ? exampleConfigPath
+      : "CONFIG_JSON";
   const usersCount = Array.isArray(cfg.users) ? cfg.users.length : 0;
 
-  if (!hasFile && !hasEnv) {
-    throw new Error(`No config source found. Expected config file at ${configPath} or CONFIG_JSON.`);
+  if (!hasFile && !hasExampleFile && !hasEnv) {
+    throw new Error(`No config source found. Expected config file at ${configPath}, ${exampleConfigPath}, or CONFIG_JSON.`);
   }
 
   if (usersCount === 0) {

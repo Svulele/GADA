@@ -56,6 +56,7 @@ GADA/
 ├── server.js          # Express app, all API routes, WebSocket server
 ├── db.js              # SQLite setup, table definitions, indexes
 ├── config.json        # Users (with PINs) and locations — NEVER commit this
+├── config.example.json # Safe demo fallback config for deployments
 ├── gada.db            # SQLite database file — NEVER commit this
 ├── package.json
 ├── .env               # Environment variables — NEVER commit this
@@ -106,7 +107,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ### 3. Configure users and locations
 
-Edit `config.json` in the project root (not in `public/`):
+For local development, create or edit `config.json` in the project root (not in `public/`). This file is ignored by Git because it contains real user PINs.
 
 ```json
 {
@@ -121,12 +122,12 @@ Edit `config.json` in the project root (not in `public/`):
       "pin": "0000"
     },
     {
-      "id": "nurse-1",
-      "name": "Nurse One",
-      "role": "Nurse",
-      "department": "Ward A",
+      "id": "demo-staff",
+      "name": "Demo Staff",
+      "role": "Staff",
+      "department": "Reception",
       "access": "staff",
-      "pin": "1234"
+      "pin": "1111"
     }
   ]
 }
@@ -136,6 +137,8 @@ Edit `config.json` in the project root (not in `public/`):
 - `admin` — full access: manage users, assets, export audit log
 - `staff` — can scan assets and view dashboard
 - `viewer` — read-only dashboard, cannot scan
+
+If `config.json` is missing, the app falls back to `config.example.json`. This is intentional for production hosts such as Render, where the private `config.json` is not committed. The example file contains safe demo accounts only.
 
 ### 4. Run
 
@@ -151,17 +154,14 @@ Open `http://localhost:3000`
 
 ---
 
-## Default Accounts (change PINs immediately)
+## Demo Accounts
 
 | Name | ID | PIN | Access |
 |---|---|---|---|
-| Sbulele | sbu | 1234 | admin |
-| Admin | admin | 0000 | admin |
-| Security-1 | sec-1 | 1111 | staff |
-| Nurse-1 | nurse-1 | 2222 | staff |
-| Doctor-1 | doc-1 | 3333 | staff |
+| Demo Admin | demo-admin | 0000 | admin |
+| Demo Staff | demo-staff | 1111 | staff |
 
-> ⚠️ Change all PINs before any real deployment.
+These accounts come from `config.example.json`. Use a private `config.json`, `CONFIG_JSON_PATH`, or `CONFIG_JSON` for real deployments with real users.
 
 ---
 
@@ -284,7 +284,7 @@ PORT=3000
 SESSION_SECRET=replace-this-with-a-long-random-string
 NODE_ENV=production
 DATABASE_URL=postgres://user:password@host:5432/database
-# Optional: use CONFIG_JSON_PATH or CONFIG_JSON to provide config without committing config.json
+# Optional: use CONFIG_JSON_PATH or CONFIG_JSON to provide private config without committing config.json
 # CONFIG_JSON_PATH=./config.json
 # CONFIG_JSON={"locations":["Reception"],"users":[{"id":"admin","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"0000"}]}
 ```
@@ -292,7 +292,9 @@ DATABASE_URL=postgres://user:password@host:5432/database
 ### Config deployment notes
 
 - By default the app reads `config.json` from the project root.
-- In production you can instead set `CONFIG_JSON_PATH` to a writable config path.
+- If `config.json` is not present, the app reads `config.example.json`.
+- Render deploys automatically use `config.example.json` unless you provide private config with `CONFIG_JSON_PATH` or `CONFIG_JSON`.
+- In production you can set `CONFIG_JSON_PATH` to a writable config path.
 - For env-based config, set `CONFIG_JSON` to a JSON string containing `locations` and `users`.
 - If admins need to add or edit users in the app, prefer `CONFIG_JSON_PATH`; `CONFIG_JSON` is updated only inside the running server process and will reset on restart.
 
@@ -306,7 +308,8 @@ npm run migrate:sqlite-to-postgres
 ### Vercel deploy notes
 
 - Ensure `SESSION_SECRET` and `DATABASE_URL` are set in Vercel dashboard.
-- `config.json` must be provided separately on the server or committed safely outside public assets.
+- `config.json` is optional for demo deployments because `config.example.json` is committed and safe.
+- Provide private config separately for real users; never commit real PINs.
 - In production, the app will use Postgres when `DATABASE_URL` is present.
 
 ---

@@ -13,20 +13,20 @@
   ],
   "users": [
     {
-      "id": "admin",
-      "name": "Admin",
+      "id": "demo-admin",
+      "name": "Demo Admin",
       "role": "Admin",
       "department": "Records",
       "access": "admin",
-      "pin": "change-me"
+      "pin": "0000"
     },
     {
-      "id": "staff-1",
-      "name": "Staff Member",
+      "id": "demo-staff",
+      "name": "Demo Staff",
       "role": "Staff",
       "department": "Reception",
       "access": "staff",
-      "pin": "change-me"
+      "pin": "1111"
     }
   ]
 }

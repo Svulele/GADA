@@ -15,16 +15,17 @@ rm -f /app/gada.db
 ln -s /data/gada.db /app/gada.db
 
 # --- config.json: seed once, then always use the copy on the volume ---
-# This file holds user PINs — we deliberately never bake a real one into
-# the image. See config.json.example for the format to copy in via
-# `fly ssh console` the first time you deploy.
+# This file holds user PINs. Seed a private config when available, otherwise
+# use the safe demo config so first boot still has login accounts.
 if [ ! -f /data/config.json ]; then
   if [ -f /app/config.json ]; then
     cp /app/config.json /data/config.json
   elif [ -n "$CONFIG_JSON" ]; then
     printf '%s\n' "$CONFIG_JSON" > /data/config.json
+  elif [ -f /app/config.example.json ]; then
+    cp /app/config.example.json /data/config.json
   else
-    echo "FATAL: Missing config.json. Provide /data/config.json, include /app/config.json in the image, or set CONFIG_JSON for first boot." >&2
+    echo "FATAL: Missing config. Provide /data/config.json, include /app/config.example.json in the image, or set CONFIG_JSON for first boot." >&2
     exit 1
   fi
 fi
