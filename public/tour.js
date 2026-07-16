@@ -98,7 +98,11 @@
   let resizeHandler;
 
   function storageKey() {
-    return `gadaTourDone:${userId}:${PATH_KEY}:${VERSION}`;
+    // One flag per user, not per page. The tour should only ever run
+    // once — on whichever page the person happens to land on right
+    // after their very first login — and never resurface again on
+    // any other page after that.
+    return `gadaTourDone:${userId}:${VERSION}`;
   }
 
   function hasSeenTour() {

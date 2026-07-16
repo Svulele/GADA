@@ -6,6 +6,32 @@
   <title>Scan — GADA</title>
   <link rel="stylesheet" href="style.css"/>
 <script>
+// Auto-redirect phones (and other small touch devices) straight to the
+// mobile scan page — no more manually clicking "Switch to mobile view".
+// Runs before any layout/paint so there's no flash of the desktop page.
+// Two escape hatches so this can never become a redirect loop:
+//   1. ?desktop=1 on the URL
+//   2. sessionStorage 'gadaViewDesktop' (set when someone deliberately
+//      chooses the desktop layout from mobile.html)
+(function() {
+  const params = new URLSearchParams(location.search);
+  if (params.get('desktop') === '1') {
+    sessionStorage.setItem('gadaViewDesktop', '1');
+    return;
+  }
+  if (sessionStorage.getItem('gadaViewDesktop') === '1') return;
+
+  const ua = navigator.userAgent || '';
+  const isMobileUA = /Android|iPhone|iPod|Mobi|Windows Phone/i.test(ua);
+  // iPadOS reports as "Macintosh" but exposes touch points; catch it too.
+  const isTouchTablet = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+  const isNarrow = window.matchMedia('(max-width: 820px) and (pointer: coarse)').matches;
+
+  if (isMobileUA || isTouchTablet || isNarrow) {
+    window.location.replace('/mobile.html');
+  }
+})();
+
 // dark mode persistence
 (function(){
   if(localStorage.getItem('gadaDark')==='1') document.body.classList.add('dark');

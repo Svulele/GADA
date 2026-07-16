@@ -105,7 +105,7 @@
 <body class="mobilePage">
   <div class="mobilePage">
     <header class="mobileHeader">
-      <a href="/scan.html" class="backLink" aria-label="Back to scan page"><span class="backIcon">←</span><span>Back</span></a>
+      <a href="/" class="backLink" aria-label="Back to dashboard"><span class="backIcon">←</span><span>Back</span></a>
       <div class="userChip" id="mobileUserChip" aria-label="Signed in user">
         <div class="userAvatar" id="mobileUserAvatar">—</div>
         <div class="userInfo"><span class="userName" id="mobileUserName">Loading…</span><span class="userRole" id="mobileUserRole"></span></div>
@@ -142,6 +142,10 @@
         <h2>Recent scans</h2>
         <div id="recentList" class="recentList"></div>
       </section>
+
+      <p style="text-align:center;padding:4px 2px 0;">
+        <a href="/scan.html?desktop=1" style="color:var(--text-3);font-size:12px;text-decoration:underline;">View desktop layout instead</a>
+      </p>
     </main>
 
     <section class="recordSection">
