@@ -5,6 +5,7 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
+    "test": "node --test",
     "dev": "nodemon server.js",
     "start": "node server.js",
     "screenshots": "node scripts/capture-demo-screenshots.js",
