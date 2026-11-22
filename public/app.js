@@ -4,6 +4,7 @@ const dTag    = document.getElementById('dTag');
 const dClose  = document.getElementById('dClose');
 const dBody   = document.getElementById('dBody');
 let alertsDismissed = false;
+let dashboardHasRendered = false;
 
 dClose.addEventListener('click', () => modal.close());
 modal.addEventListener('click', e => { if (e.target === modal) modal.close(); });
@@ -100,9 +101,17 @@ function renderAlerts(alerts) {
   };
   banner.querySelectorAll('[data-mark-found]').forEach(btn => {
     btn.onclick = async () => {
+      const tag = btn.dataset.markFound;
+      const assetRow = [...document.querySelectorAll('.lcAssetRow')].find(row => row.dataset.tag === tag);
+      const badge = assetRow?.querySelector('.statusBadge');
+      if (badge) {
+        badge.className = 'statusBadge status-available';
+        badge.textContent = 'Available';
+      }
+      btn.closest('.alertRow')?.remove();
       btn.disabled = true;
       try {
-        await fetch(`/api/assets/${encodeURIComponent(btn.dataset.markFound)}`, {
+        await fetch(`/api/assets/${encodeURIComponent(tag)}`, {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -116,7 +125,7 @@ function renderAlerts(alerts) {
         alertsDismissed = false;
         await load();
       } catch(e) {
-        btn.disabled = false;
+        await load();
         showToast(e.message);
       }
     };
@@ -168,8 +177,9 @@ async function openHistory(tag) {
 }
 
 // ── render facility grid ──────────────────────────
-function renderFacility(assets, locations, alerts = []) {
+function renderFacility(assets, locations, alerts = [], animate = false) {
   const grid = document.getElementById('facilityGrid');
+  grid.classList.toggle('is-entering', animate);
   const overdueLocations = new Set(alerts
     .filter(a => a.last_location && Number(a.hours_since) >= 24)
     .map(a => a.last_location));
@@ -183,14 +193,14 @@ function renderFacility(assets, locations, alerts = []) {
     // unknown location assets just won't show in a tile
   });
 
-  grid.innerHTML = locations.map(loc => {
+  grid.innerHTML = locations.map((loc, index) => {
     const items = byLoc[loc] || [];
     const count = items.length;
     const preview = items.slice(0, 3);
     const overflow = count - 3;
 
     return `
-      <div class="locCard ${count === 0 ? 'locCardEmpty' : ''} ${overdueLocations.has(loc) ? 'locCardAlert' : ''}">
+      <div class="locCard ${count === 0 ? 'locCardEmpty' : ''} ${overdueLocations.has(loc) ? 'locCardAlert' : ''}" style="--stagger-index:${index % 12}">
         <div class="lcHead">
           <div class="lcIcon">${locationIcon(loc)}</div>
           <div class="lcName">${loc}</div>
@@ -226,8 +236,9 @@ function renderFacility(assets, locations, alerts = []) {
 }
 
 // ── render activity feed ──────────────────────────
-function renderActivity(assets) {
+function renderActivity(assets, animate = false) {
   const feed = document.getElementById('activityFeed');
+  feed.classList.toggle('is-entering', animate);
   const recent = assets
     .filter(a => a.last_seen)
     .sort((a,b) => (toDate(b.last_seen)?.getTime() || 0) - (toDate(a.last_seen)?.getTime() || 0))
@@ -238,8 +249,8 @@ function renderActivity(assets) {
     return;
   }
 
-  feed.innerHTML = recent.map(a => `
-    <div class="actItem" data-tag="${a.tag}">
+  feed.innerHTML = recent.map((a, index) => `
+    <div class="actItem" data-tag="${a.tag}" style="--stagger-index:${index}">
       <div class="actDot"></div>
       <div class="actContent">
         <span class="actName">${a.name}</span>
@@ -263,6 +274,7 @@ function renderActivity(assets) {
 
 // ── asset popover menu ─────────────────────────
 let _assetPopover = null;
+let _assetPopoverHideTimer = null;
 function createAssetPopover() {
   if (_assetPopover) return _assetPopover;
   const p = document.createElement('div');
@@ -282,6 +294,7 @@ function createAssetPopover() {
 
 function showAssetPopover(tag, anchorEl, ev) {
   const pop = createAssetPopover();
+  clearTimeout(_assetPopoverHideTimer);
   // attach handlers
   pop.querySelectorAll('.menuItem').forEach(btn => {
     btn.onclick = (e) => {
@@ -296,13 +309,18 @@ function showAssetPopover(tag, anchorEl, ev) {
   const rect = anchorEl.getBoundingClientRect();
   pop.style.left = (rect.left + window.scrollX) + 'px';
   pop.style.top  = (rect.top + window.scrollY + rect.height + 6) + 'px';
+  pop.style.transformOrigin = 'top left';
   pop.style.display = 'block';
   requestAnimationFrame(() => {
+    pop.classList.add('is-open');
     const r = pop.getBoundingClientRect();
     // adjust if overflowing right
     if (r.right > window.innerWidth) pop.style.left = (window.scrollX + window.innerWidth - r.width - 8) + 'px';
     // if bottom overflow, position above
-    if (r.bottom > window.scrollY + window.innerHeight) pop.style.top = (rect.top + window.scrollY - r.height - 6) + 'px';
+    if (r.bottom > window.scrollY + window.innerHeight) {
+      pop.style.top = (rect.top + window.scrollY - r.height - 6) + 'px';
+      pop.style.transformOrigin = 'bottom left';
+    }
     pop.focus();
   });
   // global handlers to close
@@ -314,7 +332,11 @@ function showAssetPopover(tag, anchorEl, ev) {
 
 function hideAssetPopover() {
   if (!_assetPopover) return;
-  _assetPopover.style.display = 'none';
+  _assetPopover.classList.remove('is-open');
+  clearTimeout(_assetPopoverHideTimer);
+  _assetPopoverHideTimer = setTimeout(() => {
+    if (!_assetPopover.classList.contains('is-open')) _assetPopover.style.display = 'none';
+  }, 145);
   document.removeEventListener('click', _closeOnDocClick);
   document.removeEventListener('keydown', _closeOnEsc);
 }
@@ -325,9 +347,10 @@ function _closeOnEsc(e) { if (e.key === 'Escape') hideAssetPopover(); }
 // ── main load ─────────────────────────────────────
 async function load() {
   try {
-    const [assets, cfg] = await Promise.all([
+    const [assets, cfg, alerts] = await Promise.all([
       fetch('/api/assets').then(r=>r.json()),
-      fetch('/api/config',{cache:'no-store'}).then(r=>r.json())
+      fetch('/api/config',{cache:'no-store'}).then(r=>r.json()),
+      fetch('/api/alerts', { credentials:'include' }).then(r=>r.json())
     ]);
 
     const locations = cfg.locations || [];
@@ -344,11 +367,17 @@ async function load() {
     document.getElementById('pulseCount').textContent =
       `${filled} of ${locations.length} locations active`;
 
-    renderFacility(assets, locations);
-    const alerts = await fetch('/api/alerts', { credentials:'include' }).then(r=>r.json());
     renderAlerts(alerts);
-    renderFacility(assets, locations, alerts);
-    renderActivity(assets);
+    const animate = !dashboardHasRendered;
+    renderFacility(assets, locations, alerts, animate);
+    renderActivity(assets, animate);
+    dashboardHasRendered = true;
+    if (animate) {
+      setTimeout(() => {
+        document.getElementById('facilityGrid')?.classList.remove('is-entering');
+        document.getElementById('activityFeed')?.classList.remove('is-entering');
+      }, 600);
+    }
   } catch(e) {
     console.error(e);
   }
@@ -384,9 +413,9 @@ function showToast(msg) {
   if (!t) {
     t = document.createElement('div');
     t.id = 'gadaToast';
-    t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);
+    t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(6px);
       background:var(--text);color:#fff;font-size:13px;font-weight:500;padding:10px 18px;
-      border-radius:100px;opacity:0;transition:all 0.2s;z-index:9999;pointer-events:none;
+      border-radius:100px;opacity:0;transition:opacity 160ms ease,transform 160ms cubic-bezier(.2,.8,.2,1);z-index:9999;pointer-events:none;
       font-family:var(--font);white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,0.15);`;
     document.body.appendChild(t);
   }
@@ -406,12 +435,12 @@ function showToast(msg) {
   const overlay = document.createElement('div');
   overlay.id = 'kSearch';
   overlay.style.cssText = `display:none;position:fixed;inset:0;z-index:10000;
-    background:rgba(20,18,14,0.35);backdrop-filter:blur(4px);
+    background:rgba(20,18,14,0.35);
     align-items:flex-start;justify-content:center;padding-top:15vh;`;
   overlay.innerHTML = `
     <div style="width:100%;max-width:520px;background:var(--surface);
       border:1px solid var(--border-2);border-radius:var(--rl);overflow:hidden;
-      box-shadow:0 20px 60px rgba(0,0,0,0.18);animation:slideUp 0.16s ease;">
+        box-shadow:0 20px 60px rgba(0,0,0,0.18);animation:slideUp 180ms cubic-bezier(.2,.8,.2,1);">
       <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);">
         <svg width="15" height="15" viewBox="0 0 14 14" fill="none" style="color:var(--text-3);flex-shrink:0;">
           <circle cx="6" cy="6" r="4" stroke="currentColor" stroke-width="1.3"/>
@@ -428,8 +457,21 @@ function showToast(msg) {
   document.body.appendChild(overlay);
 
   let allAssets = [];
-  async function refreshAssets() {
-    try { allAssets = await fetch('/api/assets',{credentials:'include'}).then(r=>r.json()); } catch {}
+  let searchTimer = null;
+  let searchSequence = 0;
+  async function refreshAssets(query = '') {
+    const sequence = ++searchSequence;
+    const url = query
+      ? `/api/assets/search?q=${encodeURIComponent(query)}`
+      : '/api/assets?limit=8';
+    try {
+      const rows = await fetch(url, { credentials:'include' }).then(r=>r.ok ? r.json() : []);
+      if (sequence !== searchSequence) return;
+      allAssets = Array.isArray(rows) ? rows : [];
+      renderResults(query);
+    } catch {
+      if (sequence === searchSequence) allAssets = [];
+    }
   }
   await refreshAssets();
 
@@ -437,16 +479,14 @@ function showToast(msg) {
     overlay.style.display = 'flex';
     document.getElementById('kInput').value = '';
     renderResults('');
+    refreshAssets();
     setTimeout(() => document.getElementById('kInput').focus(), 50);
   }
   function closeSearch() { overlay.style.display = 'none'; }
 
   function renderResults(q) {
     const res = document.getElementById('kResults');
-    const term = q.toLowerCase();
-    const matches = term
-      ? allAssets.filter(a => a.name.toLowerCase().includes(term) || a.tag.toLowerCase().includes(term))
-      : allAssets.slice(0, 8);
+    const matches = allAssets;
 
     if (!matches.length) {
       res.innerHTML = `<div style="text-align:center;padding:32px;font-size:13px;color:var(--text-3);">No assets found</div>`;
@@ -454,7 +494,7 @@ function showToast(msg) {
     }
     res.innerHTML = matches.map(a => `
       <div class="kItem" data-tag="${a.tag}" style="display:flex;align-items:center;gap:12px;
-        padding:11px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s;">
+        padding:11px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background-color 120ms ease;">
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:500;color:var(--text);">${a.name}</div>
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);">${a.tag}</div>
@@ -474,11 +514,19 @@ function showToast(msg) {
   }
 
   document.getElementById('kInput').addEventListener('input', e => {
-    renderResults(e.target.value);
+    const query = e.target.value.trim();
+    searchSequence++;
+    clearTimeout(searchTimer);
+    if (!query) {
+      refreshAssets();
+      return;
+    }
+    document.getElementById('kResults').innerHTML = '<div class="emptyState">Searching…</div>';
+    searchTimer = setTimeout(() => refreshAssets(query), 120);
   });
   overlay.addEventListener('click', e => { if (e.target === overlay) closeSearch(); });
   document.addEventListener('keydown', e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); refreshAssets(); openSearch(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openSearch(); }
     if (e.key === 'Escape') closeSearch();
   });
 
@@ -488,13 +536,13 @@ function showToast(msg) {
   fab.style.cssText = `position:fixed;bottom:28px;right:28px;z-index:500;
     width:46px;height:46px;border-radius:50%;background:var(--green);border:none;
     display:flex;align-items:center;justify-content:center;cursor:pointer;
-    box-shadow:0 4px 16px rgba(61,110,78,0.35);transition:all 0.15s;`;
+    box-shadow:0 4px 16px rgba(61,110,78,0.35);transition:transform 140ms cubic-bezier(.2,.8,.2,1);`;
   fab.innerHTML = `<svg width="18" height="18" viewBox="0 0 14 14" fill="none">
     <circle cx="6" cy="6" r="4" stroke="white" stroke-width="1.5"/>
     <path d="M10 10L13 13" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
   </svg>`;
-  fab.addEventListener('click', () => { refreshAssets(); openSearch(); });
-  fab.addEventListener('mouseenter', () => fab.style.transform = 'scale(1.08)');
+  fab.addEventListener('click', openSearch);
+  fab.addEventListener('mouseenter', () => fab.style.transform = 'scale(1.04)');
   fab.addEventListener('mouseleave', () => fab.style.transform = 'scale(1)');
   document.body.appendChild(fab);
 })();

@@ -1,4 +1,6 @@
 let CONFIG = {};
+let tagSearchTimer = null;
+let tagSearchSequence = 0;
 
 function $(id) { return document.getElementById(id); }
 
@@ -197,12 +199,17 @@ async function init() {
     createPicker();
     function onTagInput() {
       const q = String(tagInput.value || '').trim().toLowerCase();
-      if (!q) { hidePicker(); return; }
-      const matches = ASSETS.filter(a =>
-        (a.tag||'').toLowerCase().includes(q) || (a.name||'').toLowerCase().includes(q)
-      ).slice(0, 8);
-      if (matches.length) renderPicker(matches, tagInput);
-      else hidePicker();
+      clearTimeout(tagSearchTimer);
+      if (!q) { tagSearchSequence++; hidePicker(); return; }
+      tagSearchTimer = setTimeout(async () => {
+        const sequence = ++tagSearchSequence;
+        try {
+          const matches = await fetch(`/api/assets/search?q=${encodeURIComponent(q)}`, { credentials:'include' }).then(r => r.ok ? r.json() : []);
+          if (sequence !== tagSearchSequence || tagInput.value.trim().toLowerCase() !== q) return;
+          if (matches.length) renderPicker(matches, tagInput);
+          else hidePicker();
+        } catch { hidePicker(); }
+      }, 120);
     }
 
     function highlightPicker(idx) {
@@ -276,21 +283,33 @@ function buildUndoBar() {
 
   document.getElementById('undoBtn').onclick = async () => {
     if (!lastEventId) return;
+    const btn = document.getElementById('undoBtn');
+    const optimisticScan = sessionScans[0];
+    if (optimisticScan) {
+      sessionScans.shift();
+      renderRecentScans();
+    }
+    hideUndo();
+    btn.disabled = true;
+    btn.textContent = 'Undoing…';
     try {
       const res = await fetch(`/api/scan/undo/${lastEventId}`, {
         method: 'DELETE', credentials: 'include'
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        hideUndo();
         showMsg('Scan undone.', 'ok');
         lastEventId = null;
       } else {
-        hideUndo();
+        if (optimisticScan) { sessionScans.unshift(optimisticScan); renderRecentScans(); }
         showMsg(d.error || 'Could not undo scan.', 'err');
       }
     } catch {
+      if (optimisticScan) { sessionScans.unshift(optimisticScan); renderRecentScans(); }
       showMsg('Network error.', 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Undo';
     }
   };
 }
@@ -346,8 +365,16 @@ $('submit').onclick = async () => {
     if (res.status === 401) { window.location.href = '/login.html'; return; }
     if (!res.ok) throw new Error(data.error || 'Scan failed.');
 
-    // show undo bar
+    // Show the scan in the session list immediately, then confirm it with the server.
     const assetName = data.asset?.name || tag;
+    const pendingScan = sessionScans[0];
+    if (pendingScan?.pending) {
+      pendingScan.name = assetName;
+      pendingScan.pending = false;
+      renderRecentScans();
+    }
+
+    // show undo bar
     if (data.eventId) showUndo(data.eventId, assetName);
 
     showMsg('Scan recorded.', 'ok');
@@ -355,6 +382,10 @@ $('submit').onclick = async () => {
     $('notes').value = '';
     $('tag').focus();
   } catch(err) {
+    if (sessionScans[0]?.pending) {
+      sessionScans.shift();
+      renderRecentScans();
+    }
     showMsg(err.message || 'Could not record scan.', 'err');
   } finally {
     btn.disabled = false;
@@ -363,21 +394,6 @@ $('submit').onclick = async () => {
 };
 
 // ── TAG AUTOCOMPLETE ──────────────────────────────
-// loaded assets cache for the picker
-let ASSETS = [];
-
-async function loadTagSuggestions() {
-  try {
-    const assets = await fetch('/api/assets', {credentials:'include'}).then(r=>r.json());
-    ASSETS = Array.isArray(assets) ? assets : [];
-    const dl = document.getElementById('tagSuggestions');
-    if (dl) {
-      dl.innerHTML = ASSETS.map(a =>
-        `<option value="${a.tag}" label="${a.name} — ${a.tag}">`
-      ).join('');
-    }
-  } catch { ASSETS = []; }
-}
 
 // asset picker dropdown
 let _pickerEl = null;
@@ -442,8 +458,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePicker
 // ── RECENT SCANS THIS SESSION ─────────────────────
 const sessionScans = [];
 
-function addRecentScan(tag, name, location, action) {
-  sessionScans.unshift({ tag, name, location, action, at: new Date() });
+function addRecentScan(tag, name, location, action, pending = false) {
+  sessionScans.unshift({ tag, name, location, action, at: new Date(), pending });
   if (sessionScans.length > 10) sessionScans.pop();
   renderRecentScans();
 }
@@ -466,6 +482,7 @@ function renderRecentScans() {
         <span style="font-size:10px;font-weight:500;color:var(--green-text);">${s.location}</span>
         <span style="font-size:10px;color:var(--text-3);">·</span>
         <span style="font-size:10px;color:var(--text-3);">${actionLabel(s.action)}</span>
+        ${s.pending ? '<span style="font-size:10px;color:var(--text-3);margin-left:auto;">Saving…</span>' : ''}
       </div>
     </div>`).join('');
 }
@@ -475,9 +492,8 @@ function renderRecentScans() {
 const _scanInit = init;
 init = async function() {
   await _scanInit();
-  await loadTagSuggestions();
 
-  // wrap submit to capture success and update recent list
+  // Optimistically update the session list, then roll it back if recording fails.
   const submitBtn = $('submit');
   const _onclick = submitBtn.onclick;
   submitBtn.onclick = async function() {
@@ -485,19 +501,9 @@ init = async function() {
     const location = $('location').value;
     const action   = $('action').value;
 
-    // call the original (which now includes undo logic)
+    if (!tag) return _onclick.call(this);
+    addRecentScan(tag, tag, location, action, true);
     await _onclick.call(this);
-
-    // if scan succeeded (msg shows ok), add to recent
-    const msg = $('msg');
-    if (msg && msg.classList.contains('ok')) {
-      try {
-        const assets = await fetch('/api/assets',{credentials:'include'}).then(r=>r.json());
-        const asset  = assets.find(a=>a.tag===tag);
-        addRecentScan(tag, asset?.name||tag, location, action);
-        await loadTagSuggestions(); // refresh autocomplete
-      } catch {}
-    }
   };
 };
 

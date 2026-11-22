@@ -387,7 +387,7 @@ function showToast(text) {
     t.id = 'adminToast';
     t.style.cssText = `position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(12px);
       background:var(--text);color:var(--bg);font-size:13px;font-weight:600;padding:10px 16px;
-      border-radius:999px;opacity:0;transition:all 0.2s;z-index:9999;pointer-events:none;
+      border-radius:999px;opacity:0;transition:opacity 160ms ease,transform 160ms cubic-bezier(.2,.8,.2,1);z-index:9999;pointer-events:none;
       box-shadow:0 4px 18px rgba(0,0,0,0.18);`;
     document.body.appendChild(t);
   }
@@ -472,8 +472,19 @@ async function loadUsers() {
   document.querySelectorAll('[data-del-user]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this user?')) return;
-      try { await api(`/api/users/${encodeURIComponent(btn.dataset.delUser)}`, { method:'DELETE' }); await loadUsers(); }
-      catch(e) { showMsg('userMsg', e.message, 'err'); }
+      const row = btn.closest('.actItem');
+      const list = $('usersList');
+      const next = row?.nextSibling;
+      row?.remove();
+      btn.disabled = true;
+      try {
+        await api(`/api/users/${encodeURIComponent(btn.dataset.delUser)}`, { method:'DELETE' });
+        await loadUsers();
+      } catch(e) {
+        if (row && !row.isConnected) list.insertBefore(row, next?.isConnected ? next : null);
+        btn.disabled = false;
+        showMsg('userMsg', e.message, 'err');
+      }
     };
   });
 }
@@ -513,8 +524,8 @@ async function openUserActivity(userId, label) {
 }
 
 async function loadAssets() {
-  const assets = await api('/api/assets');
-  $('assetsList').innerHTML = assets.length ? assets.slice(0, 20).map(assetRow).join('') : '<div class="emptyState">No assets yet.</div>';
+  const assets = await api('/api/assets?limit=20');
+  $('assetsList').innerHTML = assets.length ? assets.map(assetRow).join('') : '<div class="emptyState">No assets yet.</div>';
   document.querySelectorAll('[data-edit-asset]').forEach(btn => {
     btn.onclick = () => {
       const asset = assets.find(a => a.tag === btn.dataset.editAsset);
@@ -524,14 +535,26 @@ async function loadAssets() {
   document.querySelectorAll('[data-del-asset]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Delete this asset and its events?')) return;
-      try { await api(`/api/assets/${encodeURIComponent(btn.dataset.delAsset)}`, { method:'DELETE' }); await loadAssets(); await loadAudit(); }
-      catch(e) { showMsg('assetMsg', e.message, 'err'); }
+      const row = btn.closest('.actItem');
+      const list = $('assetsList');
+      const next = row?.nextSibling;
+      row?.remove();
+      btn.disabled = true;
+      try {
+        await api(`/api/assets/${encodeURIComponent(btn.dataset.delAsset)}`, { method:'DELETE' });
+        await loadAssets();
+        await loadAudit();
+      } catch(e) {
+        if (row && !row.isConnected) list.insertBefore(row, next?.isConnected ? next : null);
+        btn.disabled = false;
+        showMsg('assetMsg', e.message, 'err');
+      }
     };
   });
 }
 
 async function loadAudit() {
-  const rows = await api('/api/audit/log');
+  const rows = await api('/api/audit/log?limit=12');
   $('auditList').innerHTML = rows.length ? rows.slice(0, 12).map(r => `
     <div class="actItem">
       <div class="actDot"></div>
@@ -851,12 +874,27 @@ $('saveUser').onclick = async () => {
     access: $('uAccess').value,
     pin: $('uPin').value.trim()
   };
+  const saveBtn = $('saveUser');
+  const list = $('usersList');
+  const optimistic = document.createElement('div');
+  optimistic.innerHTML = userRow(body);
+  const optimisticRow = optimistic.firstElementChild;
+  optimisticRow.style.opacity = '0.65';
+  list.prepend(optimisticRow);
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
   try {
     await api('/api/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     showMsg('userMsg', 'User saved.');
     $('resetUser').click();
     await loadUsers();
-  } catch(e) { showMsg('userMsg', e.message, 'err'); }
+  } catch(e) {
+    optimisticRow.remove();
+    showMsg('userMsg', e.message, 'err');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save user';
+  }
 };
 
 $('saveAsset').onclick = async () => {
@@ -867,6 +905,31 @@ $('saveAsset').onclick = async () => {
     category:$('aCat').value.trim(),
     status:$('aStatus').value
   };
+  const saveBtn = $('saveAsset');
+  const list = $('assetsList');
+  let optimisticRow = null;
+  if (editTag) {
+    const editButton = [...document.querySelectorAll('[data-edit-asset]')].find(button => button.dataset.editAsset === editTag);
+    const row = editButton?.closest('.actItem');
+    if (row) {
+      row.querySelector('.actName').textContent = body.name;
+      const badge = row.querySelector('.statusBadge');
+      if (badge) {
+        badge.className = `statusBadge status-${body.status}`;
+        badge.textContent = statusLabel(body.status);
+      }
+      const category = row.querySelector('.actMeta > span');
+      if (category) category.textContent = body.category || '—';
+    }
+  } else {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = assetRow(body);
+    optimisticRow = wrapper.firstElementChild;
+    optimisticRow.style.opacity = '0.65';
+    list.prepend(optimisticRow);
+  }
+  saveBtn.disabled = true;
+  saveBtn.textContent = editTag ? 'Updating…' : 'Saving…';
   try {
     if (editTag) {
       await api(`/api/assets/${encodeURIComponent(editTag)}`, {
@@ -882,7 +945,14 @@ $('saveAsset').onclick = async () => {
     $('assetModal').close();
     resetAssetModal();
     await loadAssets();
-  } catch(e) { showMsg('assetMsg', e.message, 'err'); }
+  } catch(e) {
+    optimisticRow?.remove();
+    await loadAssets().catch(() => {});
+    showMsg('assetMsg', e.message, 'err');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = $('assetModal').dataset.editTag ? 'Update asset' : 'Save asset';
+  }
 };
 
 $('openAssetModal').onclick = () => openAssetModal();

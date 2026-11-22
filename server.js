@@ -17,6 +17,7 @@ const io     = new Server(server, { cors: { origin: false } });
 // ── config ────────────────────────────────────────────────
 let envConfigCache = null;
 let configLoadWarningShown = false;
+const configFileCache = new Map();
 
 function normalizeConfig(cfg) {
   cfg.locations ||= [];
@@ -35,7 +36,12 @@ function getExampleConfigPath() {
 }
 
 function readConfigFile(configPath) {
-  return normalizeConfig(JSON.parse(fs.readFileSync(configPath, "utf8")));
+  const stat = fs.statSync(configPath);
+  const cached = configFileCache.get(configPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
+  const value = normalizeConfig(JSON.parse(fs.readFileSync(configPath, "utf8")));
+  configFileCache.set(configPath, { mtimeMs: stat.mtimeMs, size: stat.size, value });
+  return value;
 }
 
 function loadConfig() {
@@ -120,6 +126,7 @@ function saveConfig(cfg) {
   }
 
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf8");
+  configFileCache.delete(configPath);
 }
 
 function findUser(id, cfg) {
@@ -231,6 +238,7 @@ const VALID_ASSET_STATUSES = new Set(["available", "in-use", "maintenance", "mis
 // ── safe public config (locations + user names only, no PINs) ──
 app.get("/api/config", (req, res) => {
   const cfg = loadConfig();
+  res.set("Cache-Control", "private, max-age=15, must-revalidate");
   res.json({
     locations: cfg.locations || [],
     users: (cfg.users || []).map(u => {
@@ -244,13 +252,18 @@ app.get("/api/config", (req, res) => {
 app.get("/api/kiosk", async (req, res) => {
   const cfg = loadConfig();
   const assets = await db.prepare(`
+    WITH ranked_events AS (
+      SELECT e.asset_id, e.location, e.created_at, e.scanned_by,
+        ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
+      FROM events e
+    )
     SELECT a.tag, a.name, a.category, a.status,
-      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
-      (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen,
-      (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_scanned_by
+      e.location AS last_location, e.created_at AS last_seen, e.scanned_by AS last_scanned_by
     FROM assets a
+    LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
     ORDER BY ${isPostgres ? "LOWER(a.tag)" : "a.tag COLLATE NOCASE"}
   `).all();
+  res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=10");
   res.json({ locations: cfg.locations || [], assets });
 });
 
@@ -284,29 +297,50 @@ app.get("/api/me", (req, res) => {
 
 // ── asset routes ───────────────────────────────────────────
 app.get("/api/assets", requireAuth, async (req, res) => {
-  const sql = isPostgres ? `
-    SELECT a.*,
-      last_event.location AS last_location,
-      last_event.scanned_by AS last_scanned_by,
-      last_event.created_at AS last_seen
-    FROM assets a
-    LEFT JOIN LATERAL (
-      SELECT e.location, e.scanned_by, e.created_at
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 100)) : null;
+  const rows = await db.prepare(`
+    WITH ranked_events AS (
+      SELECT e.asset_id, e.location, e.scanned_by, e.created_at,
+        ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
       FROM events e
-      WHERE e.asset_id = a.asset_id
-      ORDER BY e.created_at DESC, e.event_id DESC
-      LIMIT 1
-    ) last_event ON true
-    ORDER BY COALESCE(last_event.created_at, a.created_at) DESC, LOWER(a.tag)
-  ` : `
-    SELECT a.*,
-      (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_location,
-      (SELECT e.scanned_by FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_scanned_by,
-      (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC, e.event_id DESC LIMIT 1) AS last_seen
+    )
+    SELECT a.*, e.location AS last_location, e.scanned_by AS last_scanned_by, e.created_at AS last_seen
     FROM assets a
-    ORDER BY COALESCE(last_seen, a.created_at) DESC, a.tag COLLATE NOCASE
-  `;
-  const rows = await db.prepare(sql).all();
+    LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
+    ORDER BY COALESCE(e.created_at, a.created_at) DESC,
+      ${isPostgres ? "LOWER(a.tag)" : "a.tag COLLATE NOCASE"}
+    ${limit ? "LIMIT ?" : ""}
+  `).all(...(limit ? [limit] : []));
+  res.json(rows);
+});
+
+app.get("/api/assets/search", requireAuth, async (req, res) => {
+  const term = String(req.query.q || "").trim().slice(0, 80).toLowerCase().replace(/[\\%_]/g, "");
+  if (!term) return res.json([]);
+  const prefix = `${term}%`;
+  const tagSearch = isPostgres ? "LOWER(a.tag)" : "LOWER(a.tag) COLLATE NOCASE";
+  const nameSearch = isPostgres ? "LOWER(a.name)" : "LOWER(a.name) COLLATE NOCASE";
+  const rows = await db.prepare(`
+    WITH matched_assets AS (
+      SELECT a.*
+      FROM assets a
+      WHERE ${tagSearch} LIKE ? OR ${nameSearch} LIKE ?
+      ORDER BY CASE WHEN LOWER(a.tag) = ? THEN 0 ELSE 1 END,
+        ${isPostgres ? "LOWER(a.name), LOWER(a.tag)" : "a.name COLLATE NOCASE, a.tag COLLATE NOCASE"}
+      LIMIT 20
+    ), ranked_events AS (
+      SELECT e.asset_id, e.location, e.created_at,
+        ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
+      FROM events e JOIN matched_assets a ON a.asset_id = e.asset_id
+    )
+    SELECT a.tag, a.name, a.category, a.status,
+      e.location AS last_location, e.created_at AS last_seen
+    FROM matched_assets a
+    LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
+    ORDER BY CASE WHEN LOWER(a.tag) = ? THEN 0 ELSE 1 END,
+      ${isPostgres ? "LOWER(a.name), LOWER(a.tag)" : "a.name COLLATE NOCASE, a.tag COLLATE NOCASE"}
+  `).all(prefix, prefix, term, term);
   res.json(rows);
 });
 
@@ -321,11 +355,13 @@ app.get("/api/assets/labels", requireAdmin, async (req, res) => {
 
 app.get("/api/alerts", requireAuth, async (req, res) => {
   const sql = isPostgres ? `
-    WITH asset_last_seen AS (
-      SELECT a.tag, a.name, a.status,
-        (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
-        (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
-      FROM assets a
+    WITH ranked_events AS (
+      SELECT e.asset_id, e.location, e.created_at,
+        ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
+      FROM events e
+    ), asset_last_seen AS (
+      SELECT a.tag, a.name, a.status, e.location AS last_location, e.created_at AS last_seen
+      FROM assets a LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
     )
     SELECT tag, name, last_seen, last_location, status,
       CASE
@@ -339,11 +375,13 @@ app.get("/api/alerts", requireAuth, async (req, res) => {
       CASE WHEN status = 'missing' THEN 0 ELSE 1 END,
       hours_since DESC
   ` : `
-    WITH asset_last_seen AS (
-      SELECT a.tag, a.name, a.status,
-        (SELECT e.location   FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_location,
-        (SELECT e.created_at FROM events e WHERE e.asset_id = a.asset_id ORDER BY e.created_at DESC LIMIT 1) AS last_seen
-      FROM assets a
+    WITH ranked_events AS (
+      SELECT e.asset_id, e.location, e.created_at,
+        ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
+      FROM events e
+    ), asset_last_seen AS (
+      SELECT a.tag, a.name, a.status, e.location AS last_location, e.created_at AS last_seen
+      FROM assets a LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
     )
     SELECT tag, name, last_seen, last_location, status,
       CASE
@@ -391,12 +429,9 @@ app.post("/api/assets/import", requireAdmin, async (req, res) => {
   const assets = Array.isArray(req.body.assets) ? req.body.assets : null;
   if (!assets) return res.status(400).json({ error: "assets array required" });
 
-  const insertSql = isPostgres
-    ? "INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?) ON CONFLICT (tag) DO NOTHING"
-    : "INSERT OR IGNORE INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)";
-  const insert = db.prepare(insertSql);
   let imported = 0;
   let skipped = 0;
+  const validRows = [];
 
   for (const row of assets) {
     const tag = String(row.tag || "").trim();
@@ -409,10 +444,21 @@ app.post("/api/assets/import", requireAdmin, async (req, res) => {
       continue;
     }
 
-    const info = await insert.run(tag, name, category || null, status);
-    if ((info.changes ?? 0) > 0) imported++;
-    else skipped++;
+    validRows.push([tag, name, category || null, status]);
   }
+
+  // Batch imports so large CSV uploads issue one INSERT per chunk, not one
+  // database round trip for each asset.
+  for (let offset = 0; offset < validRows.length; offset += 200) {
+    const chunk = validRows.slice(offset, offset + 200);
+    const values = chunk.map(() => "(?, ?, ?, ?)").join(", ");
+    const info = await db.prepare(`
+      INSERT INTO assets (tag, name, category, status) VALUES ${values}
+      ON CONFLICT (tag) DO NOTHING${isPostgres ? " RETURNING tag" : ""}
+    `).run(...chunk.flat());
+    imported += info.changes ?? 0;
+  }
+  skipped += validRows.length - imported;
 
   if (imported > 0) io.emit("asset:created", { bulk: true, imported });
   res.json({ imported, skipped });
@@ -500,6 +546,8 @@ app.delete("/api/scan/undo/:eventId", requireStaff, async (req, res) => {
 
 // ── audit log viewer — admin only ────────────────
 app.get("/api/audit/log", requireAdmin, async (req, res) => {
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 1000)) : 1000;
   const rows = await db.prepare(`
     SELECT
       a.tag, a.name, a.category,
@@ -507,8 +555,8 @@ app.get("/api/audit/log", requireAdmin, async (req, res) => {
     FROM events e
     JOIN assets a ON a.asset_id = e.asset_id
     ORDER BY e.created_at DESC
-    LIMIT 1000
-  `).all();
+    LIMIT ?
+  `).all(limit);
   res.json(rows);
 });
 
