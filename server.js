@@ -3,6 +3,7 @@
 const express      = require("express");
 const path         = require("path");
 const fs           = require("fs");
+const crypto       = require("crypto");
 const http         = require("http");
 const session      = require("express-session");
 const rateLimit    = require("express-rate-limit");
@@ -13,6 +14,12 @@ const isPostgres   = db.isPostgres;
 const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, { cors: { origin: false } });
+function emitAuthenticated(event, payload) {
+  io.to("authenticated").emit(event, payload);
+}
+function emitKioskUpdate() {
+  io.emit("kiosk:update");
+}
 
 // ── config ────────────────────────────────────────────────
 let envConfigCache = null;
@@ -60,18 +67,6 @@ function loadConfig() {
     }
   }
 
-  if (fs.existsSync(exampleConfigPath)) {
-    try {
-      return readConfigFile(exampleConfigPath);
-    } catch (err) {
-      if (!configLoadWarningShown) {
-        console.error("Failed to load example config file:", exampleConfigPath, err.message);
-        configLoadWarningShown = true;
-      }
-      return { locations: [], users: [] };
-    }
-  }
-
   if (envConfigCache) return envConfigCache;
   if (process.env.CONFIG_JSON) {
     try {
@@ -87,7 +82,54 @@ function loadConfig() {
     }
   }
 
+  if (fs.existsSync(exampleConfigPath)) {
+    try {
+      return readConfigFile(exampleConfigPath);
+    } catch (err) {
+      if (!configLoadWarningShown) {
+        console.error("Failed to load example config file:", exampleConfigPath, err.message);
+        configLoadWarningShown = true;
+      }
+      return { locations: [], users: [] };
+    }
+  }
+
   return { locations: [], users: [] };
+}
+
+const PIN_HASH_PREFIX = "scrypt$";
+
+function hashPin(pin) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = crypto.scryptSync(String(pin), salt, 64).toString("hex");
+  return `${PIN_HASH_PREFIX}${salt}$${derived}`;
+}
+
+function verifyPin(pin, storedPin) {
+  const stored = String(storedPin || "");
+  const match = /^scrypt\$([a-f0-9]{32})\$([a-f0-9]{128})$/i.exec(stored);
+  if (match) {
+    const expected = Buffer.from(match[2], "hex");
+    const actual = crypto.scryptSync(String(pin), match[1], expected.length);
+    return crypto.timingSafeEqual(actual, expected);
+  }
+  const candidate = Buffer.from(String(pin));
+  const legacy = Buffer.from(stored);
+  return candidate.length === legacy.length && crypto.timingSafeEqual(candidate, legacy);
+}
+
+function isHashedPin(pin) {
+  return typeof pin === "string" && /^scrypt\$[a-f0-9]{32}\$[a-f0-9]{128}$/i.test(pin);
+}
+
+function hashLegacyPins(cfg) {
+  let changed = false;
+  cfg.users = (cfg.users || []).map(user => {
+    if (!user || typeof user === "string" || !user.pin || isHashedPin(user.pin)) return user;
+    changed = true;
+    return { ...user, pin: hashPin(user.pin) };
+  });
+  if (changed) saveConfig(cfg);
 }
 
 function validateConfigForStartup() {
@@ -99,10 +141,25 @@ function validateConfigForStartup() {
   const hasEnv = Boolean(process.env.CONFIG_JSON);
   const source = process.env.CONFIG_JSON_PATH || hasFile
     ? configPath
-    : hasExampleFile
-      ? exampleConfigPath
-      : "CONFIG_JSON";
+    : hasEnv
+      ? "CONFIG_JSON"
+      : hasExampleFile
+        ? exampleConfigPath
+        : "CONFIG_JSON";
   const usersCount = Array.isArray(cfg.users) ? cfg.users.length : 0;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!(process.env.CONFIG_JSON_PATH || hasFile || hasEnv)) {
+      throw new Error("Production requires a private config.json, CONFIG_JSON_PATH, or CONFIG_JSON; demo config is disabled.");
+    }
+    if (cfg.users.some(u => typeof u === "string" || ["demo-admin", "demo-staff"].includes(String(u?.id)))) {
+      throw new Error("Production config contains demo accounts. Replace demo account IDs and credentials before starting.");
+    }
+    if (cfg.users.some(u => u.pin === "0000" || u.pin === "1111")) {
+      throw new Error("Production config contains a known demo PIN. Change it before starting.");
+    }
+    if (cfg.users.some(u => !u.pin)) throw new Error("Every production user must have a PIN configured.");
+  }
 
   if (!hasFile && !hasExampleFile && !hasEnv) {
     throw new Error(`No config source found. Expected config file at ${configPath}, ${exampleConfigPath}, or CONFIG_JSON.`);
@@ -111,6 +168,7 @@ function validateConfigForStartup() {
   if (usersCount === 0) {
     throw new Error(`Config loaded from ${source} but contains 0 users.`);
   }
+  hashLegacyPins(cfg);
 }
 
 function saveConfig(cfg) {
@@ -125,7 +183,8 @@ function saveConfig(cfg) {
     return;
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf8");
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: 0o600 });
+  try { fs.chmodSync(configPath, 0o600); } catch {}
   configFileCache.delete(configPath);
 }
 
@@ -172,24 +231,107 @@ function normalizeTimestamps(value, key = "") {
 
 // ── middleware ─────────────────────────────────────────────
 app.set("trust proxy", 1);
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "no-referrer");
+  res.set("Cross-Origin-Opener-Policy", "same-origin");
+  res.set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  res.set("Content-Security-Policy", "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
+  if (process.env.NODE_ENV === "production") res.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   console.error('FATAL: SESSION_SECRET must be set in production');
   process.exit(1);
 }
-app.use(session({
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
+class DatabaseSessionStore extends session.Store {
+  get(sid, callback) {
+    db.prepare("SELECT sess, expire FROM sessions WHERE sid = ?").get(sid).then(row => {
+      if (!row || Number(row.expire) <= Date.now()) {
+        if (row) this.destroy(sid, () => callback(null, null));
+        else callback(null, null);
+        return;
+      }
+      callback(null, JSON.parse(row.sess));
+    }).catch(callback);
+  }
+
+  set(sid, sess, callback) {
+    const expire = sess.cookie?.expires
+      ? new Date(sess.cookie.expires).getTime()
+      : Date.now() + (sess.cookie?.maxAge || SESSION_MAX_AGE_MS);
+    db.prepare(`
+      INSERT INTO sessions (sid, sess, expire) VALUES (?, ?, ?)
+      ON CONFLICT (sid) DO UPDATE SET sess = excluded.sess, expire = excluded.expire
+    `).run(sid, JSON.stringify(sess), expire).then(() => callback?.(null), err => callback?.(err));
+  }
+
+  touch(sid, sess, callback) {
+    const expire = sess.cookie?.expires
+      ? new Date(sess.cookie.expires).getTime()
+      : Date.now() + (sess.cookie?.maxAge || SESSION_MAX_AGE_MS);
+    db.prepare("UPDATE sessions SET expire = ? WHERE sid = ?").run(expire, sid)
+      .then(() => callback?.(null), err => callback?.(err));
+  }
+
+  destroy(sid, callback) {
+    db.prepare("DELETE FROM sessions WHERE sid = ?").run(sid)
+      .then(() => callback?.(null), err => callback?.(err));
+  }
+}
+
+const sessionMiddleware = session({
+  name: "gada.sid",
   secret: process.env.SESSION_SECRET || "gada-dev-secret-change-me-in-production",
+  store: new DatabaseSessionStore(),
+  proxy: process.env.NODE_ENV === "production",
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 8 * 60 * 60 * 1000  // 8-hour session timeout
+    maxAge: SESSION_MAX_AGE_MS
   }
-}));
+});
+app.use(sessionMiddleware);
+io.engine.use(sessionMiddleware);
+io.use((socket, next) => {
+  const origin = socket.handshake.headers.origin;
+  if (origin) {
+    const forwardedProto = String(socket.handshake.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+    const protocol = process.env.NODE_ENV === "production" ? (forwardedProto || "https") : "http";
+    const host = socket.handshake.headers.host;
+    if (!host || origin !== `${protocol}://${host}`) return next(new Error("Cross-origin socket blocked"));
+  }
+  const userId = socket.request.session?.userId;
+  if (userId && findUser(userId, loadConfig())) {
+    socket.data.authenticated = true;
+    socket.data.userId = String(userId);
+    return next();
+  }
+  socket.data.authenticated = false;
+  next(); // Public kiosk sockets receive only the sanitized kiosk:update signal.
+});
 
 app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  if (req.body === undefined) req.body = {};
+  else if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    return res.status(400).json({ error: "JSON body must be an object" });
+  }
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    const origin = req.get("origin");
+    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+    if ((origin && origin !== expectedOrigin) || req.get("sec-fetch-site") === "cross-site") {
+      return res.status(403).json({ error: "Cross-origin request blocked" });
+    }
+  }
   const sendJson = res.json.bind(res);
   res.json = body => sendJson(normalizeTimestamps(body));
   next();
@@ -203,6 +345,14 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
+const loginAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6,
+  keyGenerator: req => String(req.body?.userId || "unknown").trim().toLowerCase().slice(0, 80),
+  message: { error: "Too many login attempts for this account. Please wait 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // block direct config access (config is now at root, not public, but belt+suspenders)
 app.get("/config.json", (req, res) => res.status(404).send("Not found"));
@@ -212,7 +362,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // ── auth guards ────────────────────────────────────────────
 function requireAuth(req, res, next) {
-  if (!req.session.userId) return res.status(401).json({ error: "Not authenticated" });
+  if (!req.session.userId || !findUser(req.session.userId, loadConfig())) return res.status(401).json({ error: "Not authenticated" });
   next();
 }
 
@@ -229,7 +379,8 @@ function requireStaff(req, res, next) {
   const cfg    = loadConfig();
   const user   = findUser(req.session.userId, cfg);
   const access = user?.access || "viewer";
-  if (access === "viewer") return res.status(403).json({ error: "Scan access required" });
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!["admin", "staff"].includes(access)) return res.status(403).json({ error: "Scan access required" });
   next();
 }
 
@@ -241,11 +392,9 @@ app.get("/api/config", (req, res) => {
   res.set("Cache-Control", "private, max-age=15, must-revalidate");
   res.json({
     locations: cfg.locations || [],
-    users: (cfg.users || []).map(u => {
-      if (typeof u === "string") return { id: u, name: u };
-      const { pin, ...safe } = u;
-      return safe;
-    })
+    users: (cfg.users || []).map(u => typeof u === "string"
+      ? { id: u, name: u }
+      : { id: u.id, name: u.name || u.id })
   });
 });
 
@@ -253,12 +402,12 @@ app.get("/api/kiosk", async (req, res) => {
   const cfg = loadConfig();
   const assets = await db.prepare(`
     WITH ranked_events AS (
-      SELECT e.asset_id, e.location, e.created_at, e.scanned_by,
+      SELECT e.asset_id, e.location, e.created_at,
         ROW_NUMBER() OVER (PARTITION BY e.asset_id ORDER BY e.created_at DESC, e.event_id DESC) AS event_rank
       FROM events e
     )
     SELECT a.tag, a.name, a.category, a.status,
-      e.location AS last_location, e.created_at AS last_seen, e.scanned_by AS last_scanned_by
+      e.location AS last_location, e.created_at AS last_seen
     FROM assets a
     LEFT JOIN ranked_events e ON e.asset_id = a.asset_id AND e.event_rank = 1
     ORDER BY ${isPostgres ? "LOWER(a.tag)" : "a.tag COLLATE NOCASE"}
@@ -268,25 +417,36 @@ app.get("/api/kiosk", async (req, res) => {
 });
 
 // ── auth routes ────────────────────────────────────────────
-app.post("/api/login", loginLimiter, (req, res) => {
+app.post("/api/login", loginLimiter, loginAccountLimiter, (req, res, next) => {
   const { userId, pin } = req.body;
   if (!userId || !pin) return res.status(400).json({ error: "User and PIN required" });
+  if (!/^\d{4,8}$/.test(String(pin))) return res.status(401).json({ error: "Invalid credentials" });
 
   const cfg  = loadConfig();
   const user = findUser(userId, cfg);
   if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
   const storedPin = typeof user === "string" ? null : user.pin;
-  if (!storedPin) return res.status(401).json({ error: "No PIN configured for this account" });
-  if (String(pin) !== String(storedPin)) return res.status(401).json({ error: "Invalid credentials" });
+  if (!storedPin) return res.status(401).json({ error: "Invalid credentials" });
+  if (!verifyPin(pin, storedPin)) return res.status(401).json({ error: "Invalid credentials" });
 
-  req.session.userId = user.id;
-  req.session.loginTime = Date.now();
-  res.json({ ok: true, user: formatUser(user.id, cfg) });
+  req.session.regenerate(err => {
+    if (err) return next(err);
+    req.session.userId = user.id;
+    req.session.loginTime = Date.now();
+    req.session.save(saveError => {
+      if (saveError) return next(saveError);
+      res.json({ ok: true, user: formatUser(user.id, cfg) });
+    });
+  });
 });
 
 app.post("/api/logout", (req, res) => {
-  req.session.destroy(() => res.json({ ok: true }));
+  req.session.destroy(err => {
+    res.clearCookie("gada.sid", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" });
+    if (err) return res.status(500).json({ error: "Could not end session" });
+    res.json({ ok: true });
+  });
 });
 
 app.get("/api/me", (req, res) => {
@@ -408,9 +568,12 @@ app.get("/api/assets/:tag", requireAuth, async (req, res) => {
 
 // create asset — admin only
 app.post("/api/assets", requireAdmin, async (req, res) => {
-  const { tag, name, category } = req.body;
+  const tag = typeof req.body.tag === "string" ? req.body.tag.trim() : "";
+  const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+  const category = typeof req.body.category === "string" ? req.body.category.trim() : "";
   const status = req.body.status || "available";
   if (!tag || !name) return res.status(400).json({ error: "tag and name required" });
+  if (tag.length > 100 || name.length > 120 || category.length > 80) return res.status(400).json({ error: "Asset fields exceed the allowed length" });
   if (!VALID_ASSET_STATUSES.has(status)) return res.status(400).json({ error: "Invalid asset status" });
   try {
     const sql = isPostgres
@@ -418,7 +581,8 @@ app.post("/api/assets", requireAdmin, async (req, res) => {
       : "INSERT INTO assets (tag, name, category, status) VALUES (?, ?, ?, ?)";
     const info = await db.prepare(sql).run(tag, name, category || null, status);
     const asset = { asset_id: info.lastInsertRowid || info.rows?.[0]?.asset_id, tag, name, category: category || null, status };
-    io.emit("asset:created", asset);
+    emitAuthenticated("asset:created", asset);
+    emitKioskUpdate();
     res.json(asset);
   } catch (e) {
     res.status(409).json({ error: "Tag already exists" });
@@ -434,12 +598,16 @@ app.post("/api/assets/import", requireAdmin, async (req, res) => {
   const validRows = [];
 
   for (const row of assets) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      skipped++;
+      continue;
+    }
     const tag = String(row.tag || "").trim();
     const name = String(row.name || "").trim();
     const category = String(row.category || "").trim();
     const status = String(row.status || "available").trim() || "available";
 
-    if (!tag || !name || !VALID_ASSET_STATUSES.has(status)) {
+    if (!tag || tag.length > 100 || !name || name.length > 120 || category.length > 80 || !VALID_ASSET_STATUSES.has(status)) {
       skipped++;
       continue;
     }
@@ -460,7 +628,10 @@ app.post("/api/assets/import", requireAdmin, async (req, res) => {
   }
   skipped += validRows.length - imported;
 
-  if (imported > 0) io.emit("asset:created", { bulk: true, imported });
+  if (imported > 0) {
+    emitAuthenticated("asset:created", { bulk: true, imported });
+    emitKioskUpdate();
+  }
   res.json({ imported, skipped });
 });
 
@@ -470,11 +641,17 @@ app.put("/api/assets/:tag", requireAdmin, async (req, res) => {
   const valid = ['available','in-use','maintenance','missing'];
   if (status && !valid.includes(status))
     return res.status(400).json({ error: "Invalid status" });
+  if ((name != null && (typeof name !== "string" || !name.trim() || name.length > 120)) ||
+      (category != null && (typeof category !== "string" || category.length > 80))) {
+    return res.status(400).json({ error: "Invalid asset name or category" });
+  }
 
-  await db.prepare("UPDATE assets SET name=COALESCE(?,name), category=COALESCE(?,category), status=COALESCE(?,status) WHERE tag=?")
-    .run(name || null, category || null, status || null, req.params.tag);
+  const result = await db.prepare("UPDATE assets SET name=COALESCE(?,name), category=COALESCE(?,category), status=COALESCE(?,status) WHERE tag=?")
+    .run(name?.trim() || null, category?.trim() || null, status || null, req.params.tag);
+  if (!result.changes) return res.status(404).json({ error: "Asset not found" });
 
-  io.emit("asset:updated", { tag: req.params.tag });
+  emitAuthenticated("asset:updated", { tag: req.params.tag });
+  emitKioskUpdate();
   res.json({ ok: true });
 });
 
@@ -484,17 +661,22 @@ app.delete("/api/assets/:tag", requireAdmin, async (req, res) => {
   if (!asset) return res.status(404).json({ error: "Asset not found" });
   await db.prepare("DELETE FROM events WHERE asset_id = ?").run(asset.asset_id);
   await db.prepare("DELETE FROM assets WHERE asset_id = ?").run(asset.asset_id);
-  io.emit("asset:deleted", { tag: req.params.tag });
+  emitAuthenticated("asset:deleted", { tag: req.params.tag });
+  emitKioskUpdate();
   res.json({ ok: true });
 });
 
 // ── scan route ─────────────────────────────────────────────
 app.post("/api/scan", requireStaff, async (req, res) => {
   const { tag, action, location, notes } = req.body;
-  if (!tag || !action || !location) return res.status(400).json({ error: "tag, action, location required" });
+  if (typeof tag !== "string" || !tag.trim() || tag.length > 100 || !action || !location) {
+    return res.status(400).json({ error: "A valid tag, action and location are required" });
+  }
+  if (!["TRANSFERRED", "SCANNED_IN", "SCANNED_OUT"].includes(action)) return res.status(400).json({ error: "Invalid scan action" });
+  if (notes != null && (typeof notes !== "string" || notes.length > 500)) return res.status(400).json({ error: "Notes must be 500 characters or fewer" });
 
   const cfg = loadConfig();
-  if (cfg.locations.length && !cfg.locations.includes(location))
+  if (!cfg.locations.length || !cfg.locations.includes(location))
     return res.status(400).json({ error: "Invalid location" });
 
   let asset = await db.prepare("SELECT * FROM assets WHERE tag = ?").get(tag);
@@ -519,7 +701,8 @@ app.post("/api/scan", requireStaff, async (req, res) => {
     .run(asset.asset_id, action, location, req.session.userId, notes || null);
 
   const payload = { tag: asset.tag, name: asset.name, action, location, scanned_by: req.session.userId, at: new Date().toISOString() };
-  io.emit("scan:new", payload);
+  emitAuthenticated("scan:new", payload);
+  emitKioskUpdate();
 
   res.json({ ok: true, asset, eventId: eventInfo.lastInsertRowid });
 });
@@ -540,7 +723,8 @@ app.delete("/api/scan/undo/:eventId", requireStaff, async (req, res) => {
   await db.prepare("DELETE FROM events WHERE event_id = ?").run(eventId);
 
   // emit live update
-  io.emit("scan:undone", { tag: event.asset_id });
+  emitAuthenticated("scan:undone", { tag: event.asset_id });
+  emitKioskUpdate();
   res.json({ ok: true });
 });
 
@@ -572,7 +756,11 @@ app.get("/api/audit/export", requireAdmin, async (req, res) => {
   `).all();
 
   const header = ["Tag","Asset Name","Category","Action","Location","Scanned By","Notes","Timestamp"];
-  const escape = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
+  const escape = v => {
+    let value = String(v ?? "");
+    if (/^[\s]*[=+\-@]/.test(value)) value = `'${value}`;
+    return `"${value.replace(/"/g,'""')}"`;
+  };
   const csv = [header.join(","), ...rows.map(r =>
     [r.tag, r.name, r.category||"", r.action, r.location, r.scanned_by, r.notes||"", r.created_at].map(escape).join(",")
   )].join("\n");
@@ -633,8 +821,11 @@ app.get("/api/reports/shift", requireAdmin, async (req, res) => {
 app.post("/api/users/change-pin", requireAuth, (req, res) => {
   const { currentPin, newPin } = req.body;
   if (!currentPin || !newPin) return res.status(400).json({ error: "currentPin and newPin required" });
-  if (String(newPin).length < 4) return res.status(400).json({ error: "New PIN must be at least 4 digits" });
-  if (!/^\d+$/.test(String(newPin))) return res.status(400).json({ error: "New PIN must be numbers only" });
+  if (!/^\d{4,8}$/.test(String(currentPin))) return res.status(401).json({ error: "Current PIN is incorrect" });
+  const minPinLength = 6;
+  if (!new RegExp(`^\\d{${minPinLength},8}$`).test(String(newPin))) {
+    return res.status(400).json({ error: `New PIN must be ${minPinLength}–8 digits` });
+  }
 
   const cfg = loadConfig();
   const idx = (cfg.users || []).findIndex(u =>
@@ -644,9 +835,9 @@ app.post("/api/users/change-pin", requireAuth, (req, res) => {
 
   const user = cfg.users[idx];
   if (typeof user === "string" || !user.pin) return res.status(400).json({ error: "No PIN configured for this account" });
-  if (String(currentPin) !== String(user.pin)) return res.status(401).json({ error: "Current PIN is incorrect" });
+  if (!verifyPin(currentPin, user.pin)) return res.status(401).json({ error: "Current PIN is incorrect" });
 
-  cfg.users[idx] = { ...user, pin: String(newPin) };
+  cfg.users[idx] = { ...user, pin: hashPin(newPin) };
   saveConfig(cfg);
   res.json({ ok: true });
 });
@@ -679,13 +870,19 @@ app.get("/api/users/:id/activity", requireAdmin, async (req, res) => {
 app.post("/api/users", requireAdmin, async (req, res) => {
   const { id, name, role, department, access, pin } = req.body;
   if (!id || !name || !pin) return res.status(400).json({ error: "id, name and pin required" });
-  if (pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
-  if (!/^\d+$/.test(pin)) return res.status(400).json({ error: "PIN must be numbers only" });
+  const minPinLength = 6;
+  if (typeof id !== "string" || !id.trim() || id.length > 80 || typeof name !== "string" || !name.trim() || name.length > 120 ||
+      !new RegExp(`^\\d{${minPinLength},8}$`).test(String(pin))) {
+    return res.status(400).json({ error: `Use a valid ID and name, and a PIN of ${minPinLength}–8 digits` });
+  }
+  if (access && !["admin", "staff", "viewer"].includes(access)) return res.status(400).json({ error: "Invalid access level" });
+  if ((role != null && typeof role !== "string") || (department != null && typeof department !== "string") ||
+      String(role || "").length > 80 || String(department || "").length > 80) return res.status(400).json({ error: "Role or department is invalid" });
 
   const cfg = loadConfig();
-  if (findUser(id, cfg)) return res.status(409).json({ error: "User ID already exists" });
+  if (findUser(id.trim(), cfg)) return res.status(409).json({ error: "User ID already exists" });
 
-  cfg.users.push({ id, name, role: role||"", department: department||"", access: access||"staff", pin });
+  cfg.users.push({ id: id.trim(), name: name.trim(), role: String(role || "").trim(), department: String(department || "").trim(), access: access || "staff", pin: hashPin(pin) });
   saveConfig(cfg);
   res.json({ ok: true });
 });
@@ -695,9 +892,26 @@ app.put("/api/users/:id", requireAdmin, (req, res) => {
   const idx = cfg.users.findIndex(u => (typeof u === "string" ? u : u.id) === req.params.id);
   if (idx === -1) return res.status(404).json({ error: "User not found" });
 
+  const body = req.body;
+  const allowedFields = new Set(["name", "role", "department", "access", "pin"]);
+  if (Object.keys(body).some(key => !allowedFields.has(key))) return res.status(400).json({ error: "Unsupported user field" });
+  const minPinLength = 6;
+  if (body.access && !["admin", "staff", "viewer"].includes(body.access)) return res.status(400).json({ error: "Invalid access level" });
+  if (body.name != null && (typeof body.name !== "string" || !body.name.trim() || body.name.length > 120)) return res.status(400).json({ error: "Invalid user name" });
+  if ((body.role != null && (typeof body.role !== "string" || body.role.length > 80)) ||
+      (body.department != null && (typeof body.department !== "string" || body.department.length > 80))) {
+    return res.status(400).json({ error: "Role or department is too long" });
+  }
+  if (body.pin != null && !new RegExp(`^\\d{${minPinLength},8}$`).test(String(body.pin))) {
+    return res.status(400).json({ error: `PIN must be ${minPinLength}–8 digits` });
+  }
   const existing = cfg.users[idx];
-  const updated  = { ...existing, ...req.body };
-  if (req.body.pin && req.body.pin.length < 4) return res.status(400).json({ error: "PIN must be at least 4 digits" });
+  if (typeof existing === "string") return res.status(400).json({ error: "Legacy user entry must be replaced with a PIN-based account" });
+  const updated = { ...existing };
+  for (const field of ["name", "role", "department", "access"]) {
+    if (body[field] != null) updated[field] = typeof body[field] === "string" ? body[field].trim() : body[field];
+  }
+  if (body.pin != null) updated.pin = hashPin(body.pin);
   cfg.users[idx] = updated;
   saveConfig(cfg);
   res.json({ ok: true });
@@ -706,8 +920,10 @@ app.put("/api/users/:id", requireAdmin, (req, res) => {
 app.delete("/api/users/:id", requireAdmin, (req, res) => {
   if (req.params.id === req.session.userId) return res.status(400).json({ error: "Cannot delete your own account" });
   const cfg = loadConfig();
+  if (!findUser(req.params.id, cfg)) return res.status(404).json({ error: "User not found" });
   cfg.users = cfg.users.filter(u => (typeof u === "string" ? u : u.id) !== req.params.id);
   saveConfig(cfg);
+  io.in(`user:${req.params.id}`).disconnectSockets(true);
   res.json({ ok: true });
 });
 
@@ -719,9 +935,19 @@ app.use("/api", (err, req, res, next) => {
 
 // ── websocket ──────────────────────────────────────────────
 io.on("connection", socket => {
+  if (socket.data.authenticated) {
+    socket.join("authenticated");
+    socket.join(`user:${socket.data.userId}`);
+  }
   console.log("WS client connected:", socket.id);
   socket.on("disconnect", () => console.log("WS client disconnected:", socket.id));
 });
+
+const sessionCleanup = setInterval(() => {
+  db.prepare("DELETE FROM sessions WHERE expire <= ?").run(Date.now())
+    .catch(err => console.error("Expired session cleanup failed:", err.message));
+}, 60 * 60 * 1000);
+sessionCleanup.unref();
 
 // ── start ──────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;

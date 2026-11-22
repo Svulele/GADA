@@ -18,6 +18,11 @@ function toDate(s) {
   const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
   return Number.isNaN(d.getTime()) ? null : d;
 }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]);
+}
 function timeAgo(s) {
   const d = toDate(s); if (!d) return '—';
   const m = Math.max(0, Math.floor((Date.now()-d)/60000));
@@ -82,16 +87,16 @@ function renderAlerts(alerts) {
     </div>
     <div class="alertsList">
       ${alerts.map(a => `
-        <div class="alertRow" data-tag="${a.tag}">
+        <div class="alertRow" data-tag="${escapeHtml(a.tag)}">
           <div class="alertAsset">
-            <span class="actName">${a.name}</span>
+            <span class="actName">${escapeHtml(a.name)}</span>
             ${statusBadge(a.status)}
           </div>
           <div class="alertMeta">
             <span>${a.last_seen ? timeAgo(a.last_seen) : 'Never seen'}</span>
-            <span>${a.last_location || 'Unknown location'}</span>
+            <span>${escapeHtml(a.last_location || 'Unknown location')}</span>
           </div>
-          <button class="btn btnSm" type="button" data-mark-found="${a.tag}">Mark found</button>
+          <button class="btn btnSm" type="button" data-mark-found="${escapeHtml(a.tag)}">Mark found</button>
         </div>`).join('')}
     </div>`;
 
@@ -164,11 +169,11 @@ async function openHistory(tag) {
         <div class="evtLine"><div class="evtDot"></div></div>
         <div class="evtC">
           <div class="evtTop">
-            <span class="evtLoc">${e.location}</span>
-            <span class="evtBadge">${actionLabel(e.action)}</span>
+            <span class="evtLoc">${escapeHtml(e.location)}</span>
+            <span class="evtBadge">${escapeHtml(actionLabel(e.action))}</span>
           </div>
-          <div class="evtMeta"><span>${fullDate(e.created_at)}</span><span>${e.scanned_by}</span></div>
-          ${e.notes?`<div class="evtNote">${e.notes}</div>`:''}
+          <div class="evtMeta"><span>${escapeHtml(fullDate(e.created_at))}</span><span>${escapeHtml(e.scanned_by)}</span></div>
+          ${e.notes?`<div class="evtNote">${escapeHtml(e.notes)}</div>`:''}
         </div>
       </div>`).join('');
   } catch {
@@ -203,20 +208,20 @@ function renderFacility(assets, locations, alerts = [], animate = false) {
       <div class="locCard ${count === 0 ? 'locCardEmpty' : ''} ${overdueLocations.has(loc) ? 'locCardAlert' : ''}" style="--stagger-index:${index % 12}">
         <div class="lcHead">
           <div class="lcIcon">${locationIcon(loc)}</div>
-          <div class="lcName">${loc}</div>
+          <div class="lcName">${escapeHtml(loc)}</div>
           <div class="lcCount ${count > 0 ? 'lcCountFull' : ''}">${count}</div>
         </div>
         <div class="lcAssets">
           ${count === 0
             ? `<div class="lcEmpty">No assets</div>`
             : preview.map(a => `
-                <div class="lcAssetRow" data-tag="${a.tag}">
+                <div class="lcAssetRow" data-tag="${escapeHtml(a.tag)}">
                   <div style="min-width:0;">
                     <div class="lcAssetTitle">
-                      <span class="lcAssetName">${a.name}</span>
+                      <span class="lcAssetName">${escapeHtml(a.name)}</span>
                       ${statusBadge(a.status)}
                     </div>
-                    ${a.category ? `<div class="catBadge">${a.category}</div>` : ''}
+                    ${a.category ? `<div class="catBadge">${escapeHtml(a.category)}</div>` : ''}
                   </div>
                   <span class="lcAssetTime">${timeAgo(a.last_seen)}</span>
                 </div>`).join('') +
@@ -250,17 +255,17 @@ function renderActivity(assets, animate = false) {
   }
 
   feed.innerHTML = recent.map((a, index) => `
-    <div class="actItem" data-tag="${a.tag}" style="--stagger-index:${index}">
+    <div class="actItem" data-tag="${escapeHtml(a.tag)}" style="--stagger-index:${index}">
       <div class="actDot"></div>
       <div class="actContent">
-        <span class="actName">${a.name}</span>
+        <span class="actName">${escapeHtml(a.name)}</span>
         ${statusBadge(a.status)}
         <span class="actArrow">→</span>
-        <span class="actLoc">${a.last_location || 'Unknown'}</span>
+        <span class="actLoc">${escapeHtml(a.last_location || 'Unknown')}</span>
       </div>
       <div class="actMeta">
         <span class="actTime">${timeAgo(a.last_seen)}</span>
-        <span class="actOp">${a.last_scanned_by || '—'}</span>
+        <span class="actOp">${escapeHtml(a.last_scanned_by || '—')}</span>
       </div>
     </div>`).join('');
 
@@ -493,15 +498,15 @@ function showToast(msg) {
       return;
     }
     res.innerHTML = matches.map(a => `
-      <div class="kItem" data-tag="${a.tag}" style="display:flex;align-items:center;gap:12px;
+      <div class="kItem" data-tag="${escapeHtml(a.tag)}" style="display:flex;align-items:center;gap:12px;
         padding:11px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background-color 120ms ease;">
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;color:var(--text);">${a.name}</div>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);">${a.tag}</div>
+          <div style="font-size:13px;font-weight:500;color:var(--text);">${escapeHtml(a.name)}</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);">${escapeHtml(a.tag)}</div>
         </div>
         ${a.last_location
           ? `<span style="font-size:11px;font-weight:500;padding:3px 8px;border-radius:5px;
-              background:var(--green-bg);border:1px solid var(--green-mid);color:var(--green-text);">${a.last_location}</span>`
+              background:var(--green-bg);border:1px solid var(--green-mid);color:var(--green-text);">${escapeHtml(a.last_location)}</span>`
           : ''}
         <span style="font-family:var(--mono);font-size:11px;color:var(--text-3);">${a.last_seen ? timeAgo(a.last_seen) : '—'}</span>
       </div>`).join('');

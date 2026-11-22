@@ -148,12 +148,19 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  sid TEXT PRIMARY KEY,
+  sess TEXT NOT NULL,
+  expire BIGINT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_asset_id ON events(asset_id);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_events_asset_created_at ON events(asset_id, created_at DESC, event_id DESC);
 CREATE INDEX IF NOT EXISTS idx_events_scanned_by_created_at ON events(scanned_by, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assets_lower_name ON assets (LOWER(name) text_pattern_ops);
 CREATE INDEX IF NOT EXISTS idx_assets_lower_tag ON assets (LOWER(tag) text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
 
 ALTER TABLE assets ADD COLUMN IF NOT EXISTS category TEXT;
 ALTER TABLE assets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'available';
@@ -185,12 +192,19 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY(asset_id) REFERENCES assets(asset_id)
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  sid TEXT PRIMARY KEY,
+  sess TEXT NOT NULL,
+  expire INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_asset_id ON events(asset_id);
 CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_events_asset_created_at ON events(asset_id, created_at DESC, event_id DESC);
 CREATE INDEX IF NOT EXISTS idx_events_scanned_by_created_at ON events(scanned_by, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assets_lower_name ON assets(LOWER(name) COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_assets_lower_tag ON assets(LOWER(tag) COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
     `);
 
     try {

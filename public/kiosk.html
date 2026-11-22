@@ -310,7 +310,7 @@
       if (!window.io) return;
       try {
         socket = io();
-        socket.on('scan:new', () => loadKiosk());
+        socket.on('kiosk:update', () => loadKiosk());
       } catch (err) {
         console.warn('WebSocket unavailable', err);
       }

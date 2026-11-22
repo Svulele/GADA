@@ -131,10 +131,18 @@ const msgPin   = document.getElementById('msgPin');
 // load users
 fetch('/api/config',{cache:'no-store'}).then(r=>r.json()).then(cfg=>{
   const users = cfg.users||[];
-  userSel.innerHTML = users.map(u=>{
-    if(typeof u==='string') return `<option value="${u}">${u}</option>`;
-    return `<option value="${u.id}">${u.name} — ${u.role||u.id}</option>`;
-  }).join('');
+  userSel.replaceChildren();
+  users.forEach(u=>{
+    const option = document.createElement('option');
+    if(typeof u==='string') {
+      option.value = u;
+      option.textContent = u;
+    } else {
+      option.value = String(u.id || '');
+      option.textContent = `${u.name || u.id} — ${u.role || u.id}`;
+    }
+    userSel.appendChild(option);
+  });
 }).catch(()=>{ msgUser.textContent='Could not load staff list.'; });
 
 // check already logged in

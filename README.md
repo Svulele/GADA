@@ -138,7 +138,7 @@ For local development, create or edit `config.json` in the project root (not in 
 - `staff` — can scan assets and view dashboard
 - `viewer` — read-only dashboard, cannot scan
 
-If `config.json` is missing, the app falls back to `config.example.json`. This is intentional for production hosts such as Render, where the private `config.json` is not committed. The example file contains safe demo accounts only.
+For local development only, the app falls back to `config.example.json` when no private config is present. Production refuses this demo fallback and requires a private config source with non-demo account IDs and credentials.
 
 ### 4. Run
 
@@ -221,9 +221,11 @@ All routes require authentication unless noted. Admin-only routes return `403` i
 ## Security Notes
 
 - `config.json` lives at the project root, not in `public/` — it is never web-accessible
-- PINs are stored in `config.json` as plaintext — treat this file like a password file
-- Sessions use `httpOnly`, `sameSite: lax` cookies; `secure: true` is enabled in production
-- Login is rate-limited to 10 attempts per 15 minutes per IP
+- PINs are stored as salted scrypt hashes after startup; keep the private config file protected because it still contains account data
+- Sessions use an HTTP-only, same-site cookie and a database-backed store; secure cookies are enabled in production
+- Login is limited to 10 attempts per 15 minutes per IP and 6 attempts per account
+- Production requires a strong `SESSION_SECRET`, HTTPS, and private non-demo accounts; demo PINs are rejected
+- Sensitive live socket events require an authenticated session; the public kiosk channel only sends update signals
 - Sessions expire after 8 hours; inactivity timeout is 30 minutes on the scan page
 - In production, run behind a reverse proxy (nginx) with HTTPS/TLS
 
@@ -293,7 +295,7 @@ DATABASE_URL=postgres://user:password@host:5432/database
 
 - By default the app reads `config.json` from the project root.
 - If `config.json` is not present, the app reads `config.example.json`.
-- Render deploys automatically use `config.example.json` unless you provide private config with `CONFIG_JSON_PATH` or `CONFIG_JSON`.
+- Production does not use `config.example.json`; configure private accounts with `CONFIG_JSON_PATH` or `CONFIG_JSON`.
 - In production you can set `CONFIG_JSON_PATH` to a writable config path.
 - For env-based config, set `CONFIG_JSON` to a JSON string containing `locations` and `users`.
 - If admins need to add or edit users in the app, prefer `CONFIG_JSON_PATH`; `CONFIG_JSON` is updated only inside the running server process and will reset on restart.

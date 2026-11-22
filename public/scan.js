@@ -11,9 +11,13 @@ async function loadConfig() {
 
 function populateLocations() {
   const sel = $('location');
-  sel.innerHTML = (CONFIG.locations||[])
-    .map(l=>`<option value="${l}">${l}</option>`)
-    .join('');
+  sel.replaceChildren();
+  (CONFIG.locations || []).forEach(location => {
+    const option = document.createElement('option');
+    option.value = String(location);
+    option.textContent = String(location);
+    sel.appendChild(option);
+  });
 }
 
 async function requireAuth() {
@@ -96,8 +100,8 @@ $('savePin').onclick = async () => {
     $('confirmPin').focus();
     return;
   }
-  if (newPin.length < 4 || !/^\d+$/.test(newPin)) {
-    showPinMsg('New PIN must be at least 4 digits and numbers only.', 'err');
+  if (!/^\d{6,8}$/.test(newPin)) {
+    showPinMsg('New PIN must be 6 to 8 digits.', 'err');
     $('newPin').focus();
     return;
   }
@@ -449,7 +453,7 @@ function hidePicker() {
   _pickerIndex = -1;
 }
 
-function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // global close handlers
 document.addEventListener('click', () => hidePicker());
@@ -476,12 +480,12 @@ function renderRecentScans() {
     <div style="padding:10px 14px;border-bottom:1px solid var(--border);
       ${i===0?'background:var(--green-lite);':''}">
       <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-        ${s.name}
+        ${escapeHtml(s.name)}
       </div>
       <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
-        <span style="font-size:10px;font-weight:500;color:var(--green-text);">${s.location}</span>
+        <span style="font-size:10px;font-weight:500;color:var(--green-text);">${escapeHtml(s.location)}</span>
         <span style="font-size:10px;color:var(--text-3);">·</span>
-        <span style="font-size:10px;color:var(--text-3);">${actionLabel(s.action)}</span>
+        <span style="font-size:10px;color:var(--text-3);">${escapeHtml(actionLabel(s.action))}</span>
         ${s.pending ? '<span style="font-size:10px;color:var(--text-3);margin-left:auto;">Saving…</span>' : ''}
       </div>
     </div>`).join('');

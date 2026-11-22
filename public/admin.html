@@ -162,7 +162,7 @@
               <option value="admin">Admin</option>
             </select>
           </div>
-          <div class="field"><label class="label">PIN</label><input class="input" id="uPin" type="password" placeholder="4+ digits" maxlength="8"/></div>
+          <div class="field"><label class="label">PIN</label><input class="input" id="uPin" type="password" placeholder="6–8 digits" maxlength="8"/></div>
         </div>
         <div class="btnRow">
           <button class="btn btnPrimary" id="saveUser">Save user</button>
@@ -558,8 +558,8 @@ async function loadAudit() {
   $('auditList').innerHTML = rows.length ? rows.slice(0, 12).map(r => `
     <div class="actItem">
       <div class="actDot"></div>
-      <div class="actContent"><span class="actName">${r.name}</span><span class="actArrow">→</span><span class="actLoc">${r.location}</span></div>
-      <div class="actMeta"><span>${r.action}</span><span>${r.scanned_by}</span></div>
+      <div class="actContent"><span class="actName">${escapeHtml(r.name)}</span><span class="actArrow">→</span><span class="actLoc">${escapeHtml(r.location)}</span></div>
+      <div class="actMeta"><span>${escapeHtml(r.action)}</span><span>${escapeHtml(r.scanned_by)}</span></div>
     </div>`).join('') : '<div class="emptyState">No audit events yet.</div>';
 }
 
@@ -830,7 +830,11 @@ function downloadReportCSV() {
   }
   const rows = reportData.events;
   const header = ['Tag','Name','Category','Action','Location','Scanned By','Notes','Timestamp'];
-  const escape = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const escape = v => {
+    let value = String(v ?? '');
+    if (/^[\s]*[=+\-@]/.test(value)) value = `'${value}`;
+    return `"${value.replace(/"/g,'""')}"`;
+  };
   const csv = [header.join(','), ...rows.map(r => [r.tag, r.name, r.category||'', r.action, r.location, r.scanned_by, r.notes||'', r.created_at].map(escape).join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);

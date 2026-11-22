@@ -42,7 +42,7 @@ CONFIG_JSON_PATH=./config.json
 or inline:
 
 ```env
-CONFIG_JSON={"locations":["Reception","Ward A"],"users":[{"id":"admin","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"0000"}]}
+CONFIG_JSON={"locations":["Reception","Ward A"],"users":[{"id":"your-admin-id","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"replace-with-private-6-to-8-digit-pin"}]}
 ```
 
 4. Install dependencies:
@@ -138,12 +138,12 @@ Set this to a file path if the config file lives outside the repository.
 
 Set this to a JSON string to provide config directly from environment variables.
 This is useful on hosts where you do not want a repo file containing PINs.
-Admin changes to users and PINs are kept only for the current server process when this mode is used, so use `CONFIG_JSON_PATH` if accounts should be editable and survive restarts.
+Admin changes to users and PINs are kept only for the current server process when this mode is used, so use `CONFIG_JSON_PATH` if accounts should be editable and survive restarts. Production rejects the example config, demo IDs, and demo PINs; use non-demo account IDs and PINs.
 
 Example:
 
 ```env
-CONFIG_JSON={"locations":["Reception","Ward A"],"users":[{"id":"admin","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"0000"}]}
+CONFIG_JSON={"locations":["Reception","Ward A"],"users":[{"id":"your-admin-id","name":"Admin","role":"Admin","department":"Admin","access":"admin","pin":"replace-with-private-6-to-8-digit-pin"}]}
 ```
 
 ---
@@ -151,5 +151,5 @@ CONFIG_JSON={"locations":["Reception","Ward A"],"users":[{"id":"admin","name":"A
 ## 8. Notes
 
 - Do not commit `config.json`, `.env`, or `gada.db`.
-- Always change admin PINs before using the app in production.
+- Use private production accounts with non-demo IDs and PINs at least 6 digits long when creating or changing them. Legacy accounts should also be updated to 6–8 digit PINs.
 - `SESSION_SECRET` should be a strong random string.
